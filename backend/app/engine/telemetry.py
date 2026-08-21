@@ -75,8 +75,11 @@ class TelemetryCollector:
                     name = name.decode("utf-8")
                 
                 # Utilization
-                util = pynvml.nvmlDeviceGetUtilizationRates(handle)
-                gpu_util = util.gpu  # %
+                try:
+                    util = pynvml.nvmlDeviceGetUtilizationRates(handle)
+                    gpu_util = util.gpu  # %
+                except Exception as e:
+                    gpu_util = 0
                 
                 # Memory
                 mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
@@ -104,8 +107,9 @@ class TelemetryCollector:
                     "power_watts": power,
                     "temperature_celsius": temp
                 })
-        except Exception:
-            # NVML fails or uninitialized
+        except Exception as e:
+            import traceback
+            print('NVML ERROR:', traceback.format_exc())
             pass
             
         return gpus
