@@ -9,6 +9,7 @@ export default function Sidebar() {
   const links = [
     { href: "/", label: "Dashboard", icon: LayoutDashboard },
     { href: "/benchmarks/new", label: "New Benchmark", icon: Play },
+    { href: "/live-monitor", label: "Live Stress Test", icon: Activity },
     { href: "/compare", label: "Compare", icon: List },
     { href: "/models", label: "Models", icon: Database },
     { href: "/providers", label: "Providers", icon: Settings },
