@@ -9,6 +9,8 @@ from typing import List, Dict, Any, Optional
 from app.database import engine, Base, get_db
 from app import models, schemas, crud
 from app.engine.worker import run_executor_worker, queue_run, stop_run, broadcaster
+from app.engine.process_manager import get_process_telemetry, start_provider, stop_provider
+import urllib.parse
 from app.engine.telemetry import TelemetryCollector
 import time
 from app.engine.telemetry import TelemetryCollector
@@ -92,7 +94,19 @@ def shutdown_event():
 # --- PROVIDERS API ---
 @app.get("/api/providers", response_model=List[schemas.ProviderResponse])
 def get_providers(db: Session = Depends(get_db)):
-    return crud.get_providers(db)
+    provs = crud.get_providers(db)
+    res = []
+    for p in provs:
+        p_dict = p.__dict__.copy()
+        if p.base_url:
+            try:
+                parsed = urllib.parse.urlparse(p.base_url)
+                if parsed.port:
+                    p_dict["process_telemetry"] = get_process_telemetry(parsed.port)
+            except:
+                pass
+        res.append(p_dict)
+    return res
 
 @app.post("/api/providers", response_model=schemas.ProviderResponse)
 def create_provider(provider: schemas.ProviderCreate, db: Session = Depends(get_db)):
@@ -124,6 +138,22 @@ async def test_provider_health(id: int, db: Session = Depends(get_db)):
     db.commit()
     
     return {"status": prov.last_status, "models": models_list, "error": prov.last_error}
+
+@app.post("/api/providers/{id}/start")
+def start_prov_action(id: int, db: Session = Depends(get_db)):
+    prov = db.query(models.Provider).filter(models.Provider.id == id).first()
+    if prov:
+        start_provider(prov.type)
+    return {"status": "ok"}
+
+@app.post("/api/providers/{id}/stop")
+def stop_prov_action(id: int, db: Session = Depends(get_db)):
+    prov = db.query(models.Provider).filter(models.Provider.id == id).first()
+    if prov and prov.base_url:
+        parsed = urllib.parse.urlparse(prov.base_url)
+        if parsed.port:
+            stop_provider(parsed.port)
+    return {"status": "ok"}
 
 # --- MODELS API ---
 @app.get("/api/models", response_model=List[schemas.ModelResponse])

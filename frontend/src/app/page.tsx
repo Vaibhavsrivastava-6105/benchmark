@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { 
   Play, 
   Layers, 
-  Activity, 
+  Activity, Power, 
   Clock, 
   Gauge, 
   AlertTriangle,
@@ -59,6 +59,17 @@ export default function Dashboard() {
   const [liveTelemetry, setLiveTelemetry] = useState<any[]>([]);
 
   // Load basic data
+  const toggleProvider = async (provider: any) => {
+    const isOnline = provider.process_telemetry?.online || provider.last_status === "ONLINE";
+    const action = isOnline ? "stop" : "start";
+    try {
+      await fetch(`${API_BASE}/api/providers/${provider.id}/${action}`, { method: "POST" });
+      fetchData(); // refresh
+    } catch(e) {
+      console.error(e);
+    }
+  };
+
   const fetchData = async () => {
     try {
       const res = await fetch(`${API_BASE}/api/runs`);
@@ -221,13 +232,20 @@ export default function Dashboard() {
       
       {/* Live Engines & Hardware Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        {providers.filter(p => ["vllm", "ollama", "transformers", "llamacpp"].includes(p.type)).map(provider => {
+        {providers.filter(p => ["vllm", "openai_compatible", "transformers", "llamacpp"].includes(p.type)).map(provider => {
+          if (provider.type === "openai_compatible" && !provider.name.toLowerCase().includes("ollama")) return null; // Only show local ollama
           
-          const isOnline = provider.status === "ONLINE";
+          const pt = provider.process_telemetry;
+          const isOnline = pt ? pt.online : (provider.last_status === "ONLINE");
+          const isNative = provider.type === "transformers";
+          
           const sysLive = systemStats?.live || {};
-          const cpu = sysLive.cpu_utilization || 0;
+          const cpu = pt && pt.online ? pt.cpu : (isNative ? sysLive.cpu_utilization || 0 : 0);
+          
+          const sysRam = sysLive.ram_total_bytes ? (sysLive.ram_total_bytes / (1024**3)) : 16;
+          const ram = pt && pt.online ? (pt.ram_bytes / (1024**3)).toFixed(1) : (isNative ? ((sysLive.ram_used_bytes || 0)/(1024**3)).toFixed(1) : "0.0");
+          
           const gpuObj = sysLive.gpu_utilization && sysLive.gpu_utilization.length > 0 ? sysLive.gpu_utilization[0] : null;
-          const gpuUtil = gpuObj?.utilization || 0;
           const vramUsed = gpuObj ? (gpuObj.vram_used / (1024 ** 3)).toFixed(1) : "0";
           const vramTotal = gpuObj ? (gpuObj.vram_total / (1024 ** 3)).toFixed(1) : "0";
 
@@ -235,16 +253,23 @@ export default function Dashboard() {
             <div key={provider.id} className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-4 flex flex-col justify-between hover:border-zinc-700 transition-colors">
               <div className="flex justify-between items-center mb-3">
                 <span className="font-bold text-sm text-white truncate pr-2">{provider.name}</span>
-                <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold border ${isOnline ? "bg-emerald-950 text-emerald-400 border-emerald-800" : "bg-zinc-900 text-zinc-500 border-zinc-800"}`}>
-                  {provider.status || "OFFLINE"}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold border ${isOnline ? "bg-emerald-950 text-emerald-400 border-emerald-800" : "bg-zinc-900 text-zinc-500 border-zinc-800"}`}>
+                    {isOnline ? "ONLINE" : "OFFLINE"}
+                  </span>
+                  {!isNative && (
+                    <button onClick={() => toggleProvider(provider)} className="p-1 hover:bg-zinc-800 rounded text-zinc-400 hover:text-white transition">
+                      <Power className={`h-4 w-4 ${isOnline ? 'text-red-400' : 'text-emerald-400'}`} />
+                    </button>
+                  )}
+                </div>
               </div>
               
               <div className="space-y-3">
                 {/* CPU */}
                 <div>
                   <div className="flex justify-between text-xs text-zinc-400 mb-1">
-                    <span>System CPU</span>
+                    <span>{isNative ? "System CPU" : "Process CPU"}</span>
                     <span className="font-mono">{cpu}%</span>
                   </div>
                   <div className="w-full bg-zinc-900 h-1.5 rounded-full overflow-hidden">
@@ -252,21 +277,21 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                {/* GPU */}
+                {/* System RAM */}
                 <div>
                   <div className="flex justify-between text-xs text-zinc-400 mb-1">
-                    <span>GPU Core</span>
-                    <span className="font-mono">{gpuUtil}%</span>
+                    <span>{isNative ? "System RAM" : "Process RAM"}</span>
+                    <span className="font-mono">{ram} / {sysRam.toFixed(1)} GB</span>
                   </div>
                   <div className="w-full bg-zinc-900 h-1.5 rounded-full overflow-hidden">
-                    <div className="bg-cyan-500 h-full transition-all" style={{width: `${gpuUtil}%`}}></div>
+                    <div className="bg-blue-500 h-full transition-all" style={{width: `${(parseFloat(ram)/sysRam)*100}%`}}></div>
                   </div>
                 </div>
 
-                {/* VRAM */}
+                {/* Shared VRAM */}
                 <div>
                   <div className="flex justify-between text-xs text-zinc-400 mb-1">
-                    <span>GPU VRAM</span>
+                    <span>Shared VRAM</span>
                     <span className="font-mono">{vramUsed} / {vramTotal} GB</span>
                   </div>
                   <div className="w-full bg-zinc-900 h-1.5 rounded-full overflow-hidden">

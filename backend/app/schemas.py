@@ -27,6 +27,7 @@ class ProviderResponse(ProviderBase):
     last_status: Optional[str] = "UNTESTED"
     last_error: Optional[str] = None
     last_models: Optional[str] = None
+    process_telemetry: Optional[dict] = None
     created_at: datetime
     updated_at: datetime
 
