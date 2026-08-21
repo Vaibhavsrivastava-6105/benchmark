@@ -29,6 +29,68 @@ import {
 
 const API_BASE = "";
 
+const ProviderCard = ({ provider, toggleProvider }: { provider: any, toggleProvider: any }) => {
+  const [ping, setPing] = useState<number | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    const fetchPing = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/providers/${provider.id}/ping`);
+        const data = await res.json();
+        if (mounted) {
+          if (data.ping_ms >= 0) setPing(data.ping_ms);
+          else setPing(null);
+        }
+      } catch (e) {
+        if (mounted) setPing(null);
+      }
+    };
+    
+    // Initial fetch
+    fetchPing();
+    
+    // Poll every 3 seconds
+    const interval = setInterval(fetchPing, 3000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [provider.id, provider.last_status]);
+
+  const pt = provider.process_telemetry;
+  const isOnline = pt ? pt.online : (provider.last_status === "ONLINE");
+  const isNative = provider.type === "transformers";
+
+  return (
+    <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-5 flex flex-col justify-between hover:border-zinc-700 transition-colors h-32">
+      <div className="flex justify-between items-center mb-4">
+        <span className="font-bold text-sm text-white truncate pr-2">{provider.name}</span>
+        <div className="flex items-center gap-2">
+          <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold border ${isOnline ? "bg-emerald-950 text-emerald-400 border-emerald-800" : "bg-zinc-900 text-zinc-500 border-zinc-800"}`}>
+            {isOnline ? "ONLINE" : "OFFLINE"}
+          </span>
+          {!isNative && (
+            <button onClick={() => toggleProvider(provider)} className="p-1.5 hover:bg-zinc-800 rounded text-zinc-400 hover:text-white transition">
+              <Power className={`h-4 w-4 ${isOnline ? 'text-red-400' : 'text-emerald-400'}`} />
+            </button>
+          )}
+        </div>
+      </div>
+      
+      <div className="flex justify-between items-end mt-auto">
+        <div className="text-xs text-zinc-500 font-medium tracking-wide uppercase">
+          Network Latency
+        </div>
+        <div className="text-xl font-bold font-mono text-white">
+          {ping !== null ? `${ping} ms` : (isOnline ? "Measuring..." : "--")}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
 interface Run {
   id: number;
   name: string;
@@ -232,76 +294,9 @@ export default function Dashboard() {
       
       {/* Live Engines & Hardware Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        {providers.filter(p => ["vllm", "openai_compatible", "transformers", "llamacpp"].includes(p.type)).map(provider => {
-          if (provider.type === "openai_compatible" && !provider.name.toLowerCase().includes("ollama")) return null; // Only show local ollama
-          
-          const pt = provider.process_telemetry;
-          const isOnline = pt ? pt.online : (provider.last_status === "ONLINE");
-          const isNative = provider.type === "transformers";
-          
-          const sysLive = systemStats?.live || {};
-          const cpu = pt && pt.online ? pt.cpu : (isNative ? sysLive.cpu_utilization || 0 : 0);
-          
-          const sysRam = sysLive.ram_total_bytes ? (sysLive.ram_total_bytes / (1024**3)) : 16;
-          const ram = pt && pt.online ? (pt.ram_bytes / (1024**3)).toFixed(1) : (isNative ? ((sysLive.ram_used_bytes || 0)/(1024**3)).toFixed(1) : "0.0");
-          
-          const gpuObj = sysLive.gpu_utilization && sysLive.gpu_utilization.length > 0 ? sysLive.gpu_utilization[0] : null;
-          const vramUsed = gpuObj ? (gpuObj.vram_used / (1024 ** 3)).toFixed(1) : "0";
-          const vramTotal = gpuObj ? (gpuObj.vram_total / (1024 ** 3)).toFixed(1) : "0";
-
-          return (
-            <div key={provider.id} className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-4 flex flex-col justify-between hover:border-zinc-700 transition-colors">
-              <div className="flex justify-between items-center mb-3">
-                <span className="font-bold text-sm text-white truncate pr-2">{provider.name}</span>
-                <div className="flex items-center gap-2">
-                  <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold border ${isOnline ? "bg-emerald-950 text-emerald-400 border-emerald-800" : "bg-zinc-900 text-zinc-500 border-zinc-800"}`}>
-                    {isOnline ? "ONLINE" : "OFFLINE"}
-                  </span>
-                  {!isNative && (
-                    <button onClick={() => toggleProvider(provider)} className="p-1 hover:bg-zinc-800 rounded text-zinc-400 hover:text-white transition">
-                      <Power className={`h-4 w-4 ${isOnline ? 'text-red-400' : 'text-emerald-400'}`} />
-                    </button>
-                  )}
-                </div>
-              </div>
-              
-              <div className="space-y-3">
-                {/* CPU */}
-                <div>
-                  <div className="flex justify-between text-xs text-zinc-400 mb-1">
-                    <span>{isNative ? "System CPU" : "Process CPU"}</span>
-                    <span className="font-mono">{cpu}%</span>
-                  </div>
-                  <div className="w-full bg-zinc-900 h-1.5 rounded-full overflow-hidden">
-                    <div className="bg-fuchsia-500 h-full transition-all" style={{width: `${cpu}%`}}></div>
-                  </div>
-                </div>
-
-                {/* System RAM */}
-                <div>
-                  <div className="flex justify-between text-xs text-zinc-400 mb-1">
-                    <span>{isNative ? "System RAM" : "Process RAM"}</span>
-                    <span className="font-mono">{ram} / {sysRam.toFixed(1)} GB</span>
-                  </div>
-                  <div className="w-full bg-zinc-900 h-1.5 rounded-full overflow-hidden">
-                    <div className="bg-blue-500 h-full transition-all" style={{width: `${(parseFloat(ram)/sysRam)*100}%`}}></div>
-                  </div>
-                </div>
-
-                {/* Shared VRAM */}
-                <div>
-                  <div className="flex justify-between text-xs text-zinc-400 mb-1">
-                    <span>Shared VRAM</span>
-                    <span className="font-mono">{vramUsed} / {vramTotal} GB</span>
-                  </div>
-                  <div className="w-full bg-zinc-900 h-1.5 rounded-full overflow-hidden">
-                    <div className="bg-emerald-500 h-full transition-all" style={{width: `${gpuObj ? (gpuObj.vram_used / gpuObj.vram_total)*100 : 0}%`}}></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        })}
+        {providers.filter(p => ["Local llama.cpp (Auto-Setup)", "Local Hugging Face Transformers", "Local vLLM (Auto-Setup)", "Local Ollama"].includes(p.name)).map(provider => (
+            <ProviderCard key={provider.id} provider={provider} toggleProvider={toggleProvider} />
+          ))}
       </div>
 
       {/* Summary Cards */}

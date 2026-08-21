@@ -155,6 +155,24 @@ def stop_prov_action(id: int, db: Session = Depends(get_db)):
             stop_provider(parsed.port)
     return {"status": "ok"}
 
+import time
+@app.get("/api/providers/{id}/ping")
+async def ping_provider(id: int, db: Session = Depends(get_db)):
+    prov = db.query(models.Provider).filter(models.Provider.id == id).first()
+    if not prov:
+        return {"ping_ms": -1}
+    
+    # Measure time
+    start = time.time()
+    try:
+        client = get_provider_client(prov.id, prov.type, prov.name, prov.base_url, prov.api_key)
+        res = await client.health_check_detailed()
+        if res.get("online"):
+            return {"ping_ms": int((time.time() - start) * 1000)}
+    except Exception:
+        pass
+    return {"ping_ms": -1}
+
 # --- MODELS API ---
 @app.get("/api/models", response_model=List[schemas.ModelResponse])
 def get_models(db: Session = Depends(get_db)):
