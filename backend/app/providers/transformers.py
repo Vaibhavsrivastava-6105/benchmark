@@ -159,8 +159,19 @@ class TransformersProvider(InferenceProvider):
             full_text = ""
             output_tokens = 0
 
+            import queue
+            import asyncio
+            
             # Yield streamed text as they arrive in streamer queue
-            for chunk_text in streamer:
+            while True:
+                try:
+                    chunk_text = streamer.text_queue.get(timeout=0.01)
+                    if chunk_text == streamer.stop_signal:
+                        break
+                except queue.Empty:
+                    await asyncio.sleep(0.05)
+                    continue
+                
                 if not chunk_text:
                     continue
                 output_tokens += len(tokenizer_obj.encode(chunk_text))
