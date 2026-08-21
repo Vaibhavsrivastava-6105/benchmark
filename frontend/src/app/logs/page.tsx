@@ -10,7 +10,7 @@ export default function LogsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(${API_BASE}/api/logs)
+    fetch(`${API_BASE}/api/logs`)
       .then(res => res.json())
       .then(data => {
         setLogs(data);
@@ -39,10 +39,10 @@ export default function LogsPage() {
                 <span className="text-zinc-500 whitespace-nowrap">
                   {new Date(log.timestamp / 1000).toLocaleString()}
                 </span>
-                <span className={"w-16 whitespace-nowrap font-bold " + (
+                <span className={`w-16 whitespace-nowrap font-bold ${
                   log.level === 'ERROR' ? 'text-red-500' :
                   log.level === 'WARNING' ? 'text-amber-500' : 'text-blue-500'
-                )}>
+                }`}>
                   [{log.level}]
                 </span>
                 <span className="text-zinc-400 w-32 whitespace-nowrap">[{log.source}]</span>

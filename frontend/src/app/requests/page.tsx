@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { Activity, Clock, Server, Terminal, Search, Eye } from "lucide-react";
+import Link from "next/link";
 
 const API_BASE = "http://127.0.0.1:8001";
 
@@ -11,7 +12,7 @@ export default function RequestsPage() {
   const [selectedReq, setSelectedReq] = useState<any | null>(null);
 
   useEffect(() => {
-    fetch(${API_BASE}/api/requests?limit=200)
+    fetch(`${API_BASE}/api/requests?limit=200`)
       .then(res => res.json())
       .then(data => {
         setRequests(data);
@@ -20,7 +21,7 @@ export default function RequestsPage() {
   }, []);
 
   const openDetails = async (id: number) => {
-    const res = await fetch(${API_BASE}/api/requests/ + id);
+    const res = await fetch(`${API_BASE}/api/requests/${id}`);
     const data = await res.json();
     setSelectedReq(data);
   };
@@ -61,11 +62,11 @@ export default function RequestsPage() {
                     <td className="p-4">{req.provider_name}</td>
                     <td className="p-4 text-cyan-400">{req.model_name}</td>
                     <td className="p-4">
-                      <span className={"px-2 py-0.5 rounded text-[10px] uppercase font-bold border " + (
+                      <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold border ${
                         req.status === 'SUCCESS' ? 'bg-emerald-950 border-emerald-800 text-emerald-400' :
                         req.status === 'FAILED' ? 'bg-red-950 border-red-800 text-red-400' :
                         'bg-zinc-900 border-zinc-700 text-zinc-400'
-                      )}>
+                      }`}>
                         {req.status}
                       </span>
                     </td>
@@ -94,9 +95,9 @@ export default function RequestsPage() {
               <div>
                 <h2 className="text-xl font-bold text-white flex items-center gap-2">
                   Request #{selectedReq.id}
-                  <span className={"px-2 py-0.5 rounded text-xs uppercase font-bold border " + (
+                  <span className={`px-2 py-0.5 rounded text-xs uppercase font-bold border ${
                     selectedReq.status === 'SUCCESS' ? 'bg-emerald-950 border-emerald-800 text-emerald-400' : 'bg-red-950 border-red-800 text-red-400'
-                  )}>
+                  }`}>
                     {selectedReq.status}
                   </span>
                 </h2>
