@@ -213,7 +213,8 @@ export default function NewBenchmark() {
       prompt_suite_ids: selectedSuites,
       llm_judge_provider_id: useJudge ? judgeProviderId : null,
       llm_judge_model_name: useJudge ? judgeModelName : null,
-      custom_hardware_profile: customHardwareProfile || null
+        sequential_execution: sequentialExecution,
+        custom_hardware_profile: customHardwareProfile || null
     };
 
     try {
