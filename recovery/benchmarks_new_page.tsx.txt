@@ -1,0 +1,2263 @@
+"use client";
+
+import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { 
+  Play, 
+  ChevronRight, 
+  ChevronLeft, 
+  Server, 
+  Settings, 
+  BookOpen, 
+  TrendingUp, 
+  ShieldAlert,
+  HelpCircle
+} from "lucide-react";
+
+const API_BASE = "http://localhost:8000";
+
+interface Provider {
+  id: number;
+  name: string;
+  type: string;
+  base_url: string;
+  enabled: boolean;
+  status?: string;
+  models?: string[];
+}
+
+interface PromptSuite {
+  id: number;
+  name: string;
+  description: string;
+}
+
+export default function NewBenchmark() {
+  const router = useRouter();
+  const [step, setStep] = useState(1);
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [suites, setSuites] = useState<PromptSuite[]>([]);
+  const [loadingProviders, setLoadingProviders] = useState(true);
+
+  // Form Fields State
+  const [runName, setRunName] = useState("Run Comparison - " + new Date().toLocaleString());
+  const [modelName, setModelName] = useState("qwen2.5-7b-instruct");
+  const [revision, setRevision] = useState("latest");
+  const [quantization, setQuantization] = useState("INT4");
+  const [contextLength, setContextLength] = useState(32768);
+  const [parametersSize, setParametersSize] = useState("7B");
+  const [architecture, setArchitecture] = useState("Qwen2");
+
+  const [selectedProviders, setSelectedProviders] = useState<number[]>([]);
+  const [selectedSuites, setSelectedSuites] = useState<number[]>([]);
+
+  // Settings
+  const [temperature, setTemperature] = useState(0.0);
+  const [topP, setTopP] = useState(1.0);
+  const [topK, setTopK] = useState(50);
+  const [seed, setSeed] = useState(42);
+  const [maxTokens, setMaxTokens] = useState(128);
+  const [stopSequences, setStopSequences] = useState("");
+  const [useIdenticalSettings, setUseIdenticalSettings] = useState(true);
+
+  // Execution config
+  const [warmups, setWarmups] = useState(2);
+  const [repetitions, setRepetitions] = useState(3);
+  const [concurrency, setConcurrency] = useState(2);
+  const [requestRate, setRequestRate] = useState<number | null>(null);
+
+  // Judge LLM config
+  const [useJudge, setUseJudge] = useState(false);
+  const [judgeProviderId, setJudgeProviderId] = useState<number | null>(null);
+  const [judgeModelName, setJudgeModelName] = useState("");
+
+  useEffect(() => {
+    const loadWizardData = async () => {
+      try {
+        // Fetch Providers
+        const provRes = await fetch(`${API_BASE}/api/providers`);
+        const provs = await provRes.json();
+        
+        // Load Provider statuses in background
+        const activeProvs = provs.filter((p: Provider) => p.enabled);
+        setProviders(activeProvs);
+        
+        // Fetch Prompt Suites
+        const suiteRes = await fetch(`${API_BASE}/api/prompts`);
+        const suiteData = await suiteRes.json();
+        setSuites(suiteData);
+        
+        // Auto select first suite
+        if (suiteData.length > 0) {
+          setSelectedSuites([suiteData[0].id]);
+        }
+        
+        // Fetch active provider health in background
+        for (const p of activeProvs) {
+          checkHealth(p.id);
+        }
+      } catch (err) {
+        console.error("Failed to load wizard sources:", err);
+      } finally {
+        setLoadingProviders(false);
+      }
+    };
+    loadWizardData();
+  }, []);
+
+  const checkHealth = async (id: number) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/providers/${id}/health`, { method: "POST" });
+      const data = await res.json();
+      setProviders(prev => prev.map(p => {
+        if (p.id === id) {
+          return { ...p, status: data.status, models: data.models };
+        }
+        return p;
+      }));
+    } catch (err) {
+      setProviders(prev => prev.map(p => {
+        if (p.id === id) {
+          return { ...p, status: "OFFLINE" };
+        }
+        return p;
+      }));
+    }
+  };
+
+  const handleProviderToggle = (id: number) => {
+    setSelectedProviders(prev => 
+      prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]
+    );
+  };
+
+  const handleSuiteToggle = (id: number) => {
+    setSelectedSuites(prev => 
+      prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]
+    );
+  };
+
+  const handleLaunch = async () => {
+    if (selectedProviders.length === 0) {
+      alert("Please select at least one inference provider.");
+      return;
+    }
+    if (selectedSuites.length === 0) {
+      alert("Please select at least one prompt suite.");
+      return;
+    }
+
+    const payload = {
+      name: runName,
+      config_create: {
+        name: runName + " Configuration",
+        model_name: modelName,
+        model_revision: revision,
+        model_quantization: quantization,
+        model_context_length: contextLength,
+        model_parameters: parametersSize,
+        model_architecture: architecture,
+        temperature: temperature,
+        top_p: topP,
+        top_k: topK,
+        seed: seed,
+        max_tokens: maxTokens,
+        stop_sequences: stopSequences || null,
+        repetitions: repetitions,
+        warmup_requests: warmups,
+        concurrency: concurrency,
+        request_rate: requestRate,
+        use_identical_settings: useIdenticalSettings
+      },
+      provider_ids: selectedProviders,
+      prompt_suite_ids: selectedSuites,
+      llm_judge_provider_id: useJudge ? judgeProviderId : null,
+      llm_judge_model_name: useJudge ? judgeModelName : null
+    };
+
+    try {
+      const res = await fetch(`${API_BASE}/api/benchmarks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        const runData = await res.json();
+        router.push(`/benchmarks/${runData.id}`);
+      } else {
+        const err = await res.json();
+        alert("Failed to queue benchmark: " + (err.detail || res.statusText));
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error connection mapping.");
+    }
+  };
+
+  return (
+    <div className="p-8 max-w-4xl mx-auto space-y-8 flex-1">
+      {/* Header */}
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">Create Experiment</h1>
+        <p className="text-zinc-400 text-sm mt-1">Benchmarking wizard for testing identical models and configurations fairly.</p>
+      </div>
+
+      {/* Step Indicators */}
+      <div className="flex items-center gap-2 border-b border-zinc-800 pb-4">
+        {[
+          { num: 1, label: "Model" },
+          { num: 2, label: "Providers" },
+          { num: 3, label: "Settings" },
+          { num: 4, label: "Prompts" },
+          { num: 5, label: "LLM Judge" }
+        ].map((s) => (
+          <React.Fragment key={s.num}>
+            <div className={`flex items-center gap-2 px-3 py-1 rounded text-sm ${
+              step === s.num ? "bg-cyan-950 text-cyan-400 font-bold border border-cyan-800" :
+              step > s.num ? "text-emerald-400" : "text-zinc-500"
+            }`}>
+              <span className="w-5 h-5 rounded-full bg-zinc-850 flex items-center justify-center text-xs font-mono">
+                {s.num}
+              </span>
+              <span>{s.label}</span>
+            </div>
+            {s.num < 5 && <ChevronRight className="h-4 w-4 text-zinc-650" />}
+          </React.Fragment>
+        ))}
+      </div>
+
+      {/* Form Steps */}
+      <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-8 min-h-[380px] flex flex-col justify-between">
+        
+        {/* STEP 1: MODEL SELECTION */}
+        {step === 1 && (
+          <div className="space-y-6">
+            <h3 className="text-lg font-bold text-zinc-200 flex items-center gap-2">
+              <Settings className="h-5 w-5 text-cyan-500" />
+              Configure Target Model
+            </h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-1.5">
+                <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Benchmark Run Name</label>
+                <input 
+                  type="text" 
+                  value={runName} 
+                  onChange={(e) => setRunName(e.target.value)} 
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-sm font-sans focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Model Name / Identifier</label>
+                <input 
+                  type="text" 
+                  value={modelName} 
+                  onChange={(e) => setModelName(e.target.value)} 
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-sm font-mono focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Model Revision</label>
+                <input 
+                  type="text" 
+                  value={revision} 
+                  onChange={(e) => setRevision(e.target.value)} 
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-sm focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Quantization (e.g. GGUF Q4, FP16)</label>
+                <input 
+                  type="text" 
+                  value={quantization} 
+                  onChange={(e) => setQuantization(e.target.value)} 
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-sm focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Parameters Size (e.g. 7B, 13B)</label>
+                <input 
+                  type="text" 
+                  value={parametersSize} 
+                  onChange={(e) => setParametersSize(e.target.value)} 
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-sm focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Context Window Size</label>
+                <input 
+                  type="number" 
+                  value={contextLength} 
+                  onChange={(e) => setContextLength(parseInt(e.target.value))} 
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-sm focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* STEP 2: PROVIDERS SELECTION */}
+        {step === 2 && (
+          <div className="space-y-6">
+            <h3 className="text-lg font-bold text-zinc-200 flex items-center gap-2">
+              <Server className="h-5 w-5 text-cyan-500" />
+              Select Inference Runtimes
+            </h3>
+
+            {loadingProviders ? (
+              <div className="text-zinc-500">Checking local configurations...</div>
+            ) : providers.length === 0 ? (
+              <div className="text-zinc-500 text-sm">No active providers found. Add providers in Settings first.</div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {providers.map((p) => (
+                  <div 
+                    key={p.id}
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">Create Experiment</h1>
+        <p className="text-zinc-400 text-sm mt-1">Benchmarking wizard for testing identical models and configurations fairly.</p>
+      </div>
+
+      {/* Step Indicators */}
+      <div className="flex items-center gap-2 border-b border-zinc-800 pb-4">
+        {[
+          { num: 1, label: "Model" },
+          { num: 2, label: "Providers" },
+          { num: 3, label: "Settings" },
+          { num: 4, label: "Prompts" },
+          { num: 5, label: "LLM Judge" }
+        ].map((s) => (
+          <React.Fragment key={s.num}>
+            <div className={`flex items-center gap-2 px-3 py-1 rounded text-sm ${
+              step === s.num ? "bg-cyan-950 text-cyan-400 font-bold border border-cyan-800" :
+              step > s.num ? "text-emerald-400" : "text-zinc-500"
+            }`}>
+              <span className="w-5 h-5 rounded-full bg-zinc-850 flex items-center justify-center text-xs font-mono">
+                {s.num}
+              </span>
+              <span>{s.label}</span>
+            </div>
+            {s.num < 5 && <ChevronRight className="h-4 w-4 text-zinc-650" />}
+          </React.Fragment>
+        ))}
+      </div>
+
+      {/* Form Steps */}
+      <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-8 min-h-[380px] flex flex-col justify-between">
+        
+        {/* STEP 1: MODEL SELECTION */}
+        {step === 1 && (
+          <div className="space-y-6">
+            <h3 className="text-lg font-bold text-zinc-200 flex items-center gap-2">
+              <Settings className="h-5 w-5 text-cyan-500" />
+              Configure Target Model
+            </h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-1.5">
+                <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Benchmark Run Name</label>
+                <input 
+                  type="text" 
+                  value={runName} 
+                  onChange={(e) => setRunName(e.target.value)} 
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-sm font-sans focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Model Name / Identifier</label>
+                <input 
+                  type="text" 
+                  value={modelName} 
+                  onChange={(e) => setModelName(e.target.value)} 
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-sm font-mono focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Model Revision</label>
+                <input 
+                  type="text" 
+                  value={revision} 
+                  onChange={(e) => setRevision(e.target.value)} 
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-sm focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Quantization (e.g. GGUF Q4, FP16)</label>
+                <input 
+                  type="text" 
+                  value={quantization} 
+                  onChange={(e) => setQuantization(e.target.value)} 
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-sm focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Parameters Size (e.g. 7B, 13B)</label>
+                <input 
+                  type="text" 
+                  value={parametersSize} 
+                  onChange={(e) => setParametersSize(e.target.value)} 
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-sm focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Context Window Size</label>
+                <input 
+                  type="number" 
+                  value={contextLength} 
+                  onChange={(e) => setContextLength(parseInt(e.target.value))} 
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-sm focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* STEP 2: PROVIDERS SELECTION */}
+        {step === 2 && (
+          <div className="space-y-6">
+            <h3 className="text-lg font-bold text-zinc-200 flex items-center gap-2">
+              <Server className="h-5 w-5 text-cyan-500" />
+              Select Inference Runtimes
+            </h3>
+
+            {loadingProviders ? (
+              <div className="text-zinc-500">Checking local configurations...</div>
+            ) : providers.length === 0 ? (
+              <div className="text-zinc-500 text-sm">No active providers found. Add providers in Settings first.</div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {providers.map((p) => (
+                  <div 
+                    key={p.id}
+                    onClick={() => handleProviderToggle(p.id)}
+                    className={`border p-4 rounded-xl cursor-pointer transition-all flex flex-col justify-between ${
+                      selectedProviders.includes(p.id) ? "border-cyan-500 bg-cyan-950/10" : "border-zinc-800 hover:border-zinc-700 bg-zinc-900/30"
+                    }`}
+                  >
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h4 className="font-semibold text-zinc-200">{p.name}</h4>
+                        <span className="text-[10px] bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded uppercase font-mono mt-1 inline-block">
+                          {p.type}
+                        </span>
+                      </div>
+                      <input 
+                        type="checkbox" 
+                        checked={selectedProviders.includes(p.id)}
+                        onChange={() => {}} // toggled on card click
+                        className="rounded border-zinc-700 text-cyan-500 focus:ring-cyan-500"
+                      />
+                    </div>
+                    
+                    <div className="flex justify-between items-center text-xs mt-4 text-zinc-500 border-t border-zinc-800/80 pt-2 font-mono">
+                      <span>{p.base_url}</span>
+                      <span className={
+                        p.status === "ONLINE" ? "text-emerald-500" :
+                        p.status === "OFFLINE" ? "text-red-500" : "text-zinc-600 animate-pulse"
+                      }>
+                        ● {p.status || "Checking"}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* STEP 3: HYPERPARAMETERS & RATE SETTINGS */}
+        {step === 3 && (
+          <div className="space-y-6">
+            <h3 className="text-lg font-bold text-zinc-200 flex items-center gap-2">
+              <TrendingUp className="h-5 w-5 text-cyan-500" />
+              Generation & Execution Settings
+            </h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-1">
+                <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Temperature</label>
+                <div className="flex items-center gap-3">
+                  <input 
+                    type="range" min="0" max="2" step="0.1" 
+                    value={temperature} 
+                    onChange={(e) => setTemperature(parseFloat(e.target.value))} 
+                    className="flex-1 accent-cyan-500"
+                  />
+                  <span className="text-xs font-mono text-cyan-400 w-8">{temperature.toFixed(1)}</span>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Top P</label>
+export default function NewBenchmark() {
+  const router = useRouter();
+  const [step, setStep] = useState(1);
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [suites, setSuites] = useState<PromptSuite[]>([]);
+  const [loadingProviders, setLoadingProviders] = useState(true);
+
+  // Form Fields State
+  const [runName, setRunName] = useState("Run Comparison - " + new Date().toLocaleString());
+  const [modelName, setModelName] = useState("qwen2.5-7b-instruct");
+  const [revision, setRevision] = useState("latest");
+  const [quantization, setQuantization] = useState("INT4");
+  const [contextLength, setContextLength] = useState(32768);
+  const [parametersSize, setParametersSize] = useState("7B");
+  const [architecture, setArchitecture] = useState("Qwen2");
+
+  const [selectedProviders, setSelectedProviders] = useState<number[]>([]);
+  const [selectedSuites, setSelectedSuites] = useState<number[]>([]);
+
+  // Settings
+  const [temperature, setTemperature] = useState(0.0);
+  const [topP, setTopP] = useState(1.0);
+  const [topK, setTopK] = useState(50);
+  const [seed, setSeed] = useState(42);
+  const [maxTokens, setMaxTokens] = useState(128);
+  const [stopSequences, setStopSequences] = useState("");
+  const [useIdenticalSettings, setUseIdenticalSettings] = useState(true);
+
+  // Execution config
+  const [warmups, setWarmups] = useState(2);
+  const [repetitions, setRepetitions] = useState(3);
+  const [concurrency, setConcurrency] = useState(2);
+  const [requestRate, setRequestRate] = useState<number | null>(null);
+
+  // Judge LLM config
+  const [useJudge, setUseJudge] = useState(false);
+  const [judgeProviderId, setJudgeProviderId] = useState<number | null>(null);
+  const [judgeModelName, setJudgeModelName] = useState("");
+
+  useEffect(() => {
+    const loadWizardData = async () => {
+      try {
+        // Fetch Providers
+        const provRes = await fetch(`${API_BASE}/api/providers`);
+        const provs = await provRes.json();
+        
+        // Load Provider statuses in background
+        const activeProvs = provs.filter((p: Provider) => p.enabled);
+        setProviders(activeProvs);
+        
+        // Fetch Prompt Suites
+        const suiteRes = await fetch(`${API_BASE}/api/prompts`);
+        const suiteData = await suiteRes.json();
+        setSuites(suiteData);
+        
+        // Auto select first suite
+        if (suiteData.length > 0) {
+          setSelectedSuites([suiteData[0].id]);
+        }
+        
+        // Fetch active provider health in background
+        for (const p of activeProvs) {
+          checkHealth(p.id);
+        }
+      } catch (err) {
+        console.error("Failed to load wizard sources:", err);
+      } finally {
+        setLoadingProviders(false);
+      }
+    };
+    loadWizardData();
+  }, []);
+
+  const checkHealth = async (id: number) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/providers/${id}/health`, { method: "POST" });
+      const data = await res.json();
+      setProviders(prev => prev.map(p => {
+        if (p.id === id) {
+          return { ...p, status: data.status, models: data.models };
+        }
+        return p;
+      }));
+    } catch (err) {
+      setProviders(prev => prev.map(p => {
+        if (p.id === id) {
+          return { ...p, status: "OFFLINE" };
+        }
+        return p;
+      }));
+    }
+  useEffect(() => {
+    const loadWizardData = async () => {
+      try {
+        // Fetch Providers
+        const provRes = await fetch(`${API_BASE}/api/providers`);
+        const provs = await provRes.json();
+        
+        // Load Provider statuses in background
+        const activeProvs = provs.filter((p: Provider) => p.enabled);
+        setProviders(activeProvs);
+        
+        // Fetch Prompt Suites
+        const suiteRes = await fetch(`${API_BASE}/api/prompts`);
+        const suiteData = await suiteRes.json();
+        setSuites(suiteData);
+        
+        // Auto select first suite
+        if (suiteData.length > 0) {
+          setSelectedSuites([suiteData[0].id]);
+        }
+        
+        // Fetch active provider health in background
+        for (const p of activeProvs) {
+          checkHealth(p.id);
+        }
+      } catch (err) {
+        console.error("Failed to load wizard sources:", err);
+      } finally {
+        setLoadingProviders(false);
+      }
+    };
+    loadWizardData();
+  }, []);
+
+  const checkHealth = async (id: number) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/providers/${id}/health`, { method: "POST" });
+      const data = await res.json();
+      setProviders(prev => prev.map(p => {
+        if (p.id === id) {
+          return { ...p, status: data.status, models: data.models };
+  const checkHealth = async (id: number) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/providers/${id}/health`, { method: "POST" });
+      const data = await res.json();
+      setProviders(prev => prev.map(p => {
+        if (p.id === id) {
+          return { ...p, status: data.status, models: data.models };
+        }
+        return p;
+      }));
+    } catch (err) {
+      setProviders(prev => prev.map(p => {
+        if (p.id === id) {
+          return { ...p, status: "OFFLINE" };
+        }
+        return p;
+      }));
+    }
+  };
+      </div>
+
+      {/* Step Indicators */}
+      <div className="flex items-center gap-2 border-b border-zinc-800 pb-4">
+        {[
+          { num: 1, label: "Model" },
+          { num: 2, label: "Providers" },
+          { num: 3, label: "Settings" },
+          { num: 4, label: "Prompts" },
+          { num: 5, label: "LLM Judge" }
+        ].map((s) => (
+          <React.Fragment key={s.num}>
+            <div className={`flex items-center gap-2 px-3 py-1 rounded text-sm ${
+              step === s.num ? "bg-cyan-950 text-cyan-400 font-bold border border-cyan-800" :
+              step > s.num ? "text-emerald-400" : "text-zinc-500"
+            }`}>
+              <span className="w-5 h-5 rounded-full bg-zinc-850 flex items-center justify-center text-xs font-mono">
+                {s.num}
+              </span>
+              <span>{s.label}</span>
+            </div>
+            {s.num < 5 && <ChevronRight className="h-4 w-4 text-zinc-650" />}
+          </React.Fragment>
+        ))}
+      </div>
+
+      {/* Form Steps */}
+      <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-8 min-h-[380px] flex flex-col justify-between">
+        
+        {/* STEP 1: MODEL SELECTION */}
+        {step === 1 && (
+          <div className="space-y-6">
+            <h3 className="text-lg font-bold text-zinc-200 flex items-center gap-2">
+              <Settings className="h-5 w-5 text-cyan-500" />
+              Configure Target Model
+            </h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-1.5">
+                <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Benchmark Run Name</label>
+                <input 
+                  type="text" 
+                  value={runName} 
+                  onChange={(e) => setRunName(e.target.value)} 
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-sm font-sans focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Model Name / Identifier</label>
+                <input 
+                  type="text" 
+                  value={modelName} 
+                  onChange={(e) => setModelName(e.target.value)} 
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-sm font-mono focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Model Revision</label>
+                <input 
+                  type="text" 
+                  value={revision} 
+                  onChange={(e) => setRevision(e.target.value)} 
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-sm focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Quantization (e.g. GGUF Q4, FP16)</label>
+                <input 
+                  type="text" 
+                  value={quantization} 
+                  onChange={(e) => setQuantization(e.target.value)} 
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-sm focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Parameters Size (e.g. 7B, 13B)</label>
+                <input 
+                  type="text" 
+                  value={parametersSize} 
+                  onChange={(e) => setParametersSize(e.target.value)} 
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-sm focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Context Window Size</label>
+                <input 
+                  type="number" 
+                  value={contextLength} 
+                  onChange={(e) => setContextLength(parseInt(e.target.value))} 
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-sm focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* STEP 2: PROVIDERS SELECTION */}
+        {step === 2 && (
+          <div className="space-y-6">
+            <h3 className="text-lg font-bold text-zinc-200 flex items-center gap-2">
+              <Server className="h-5 w-5 text-cyan-500" />
+              Select Inference Runtimes
+            </h3>
+
+            {loadingProviders ? (
+              <div className="text-zinc-500">Checking local configurations...</div>
+            ) : providers.length === 0 ? (
+              <div className="text-zinc-500 text-sm">No active providers found. Add providers in Settings first.</div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {providers.map((p) => (
+              <div className="text-zinc-500">Checking local configurations...</div>
+            ) : providers.length === 0 ? (
+              <div className="text-zinc-500 text-sm">No active providers found. Add providers in Settings first.</div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {providers.map((p) => (
+                  <div 
+                    key={p.id}
+                    onClick={() => handleProviderToggle(p.id)}
+                    className={`border p-4 rounded-xl cursor-pointer transition-all flex flex-col justify-between ${
+                      selectedProviders.includes(p.id) ? "border-cyan-500 bg-cyan-950/10" : "border-zinc-800 hover:border-zinc-700 bg-zinc-900/30"
+                    }`}
+                  >
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h4 className="font-semibold text-zinc-200">{p.name}</h4>
+                        <span className="text-[10px] bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded uppercase font-mono mt-1 inline-block">
+                          {p.type}
+                        </span>
+                      </div>
+                      <input 
+                        type="checkbox" 
+                        checked={selectedProviders.includes(p.id)}
+                        onChange={() => {}} // toggled on card click
+                        className="rounded border-zinc-700 text-cyan-500 focus:ring-cyan-500"
+                      />
+                    </div>
+                    
+                    <div className="flex justify-between items-center text-xs mt-4 text-zinc-500 border-t border-zinc-800/80 pt-2 font-mono">
+                      <span>{p.base_url}</span>
+                      <span className={
+                        p.status === "ONLINE" ? "text-emerald-500" :
+                        p.status === "OFFLINE" ? "text-red-500" : "text-zinc-600 animate-pulse"
+                      }>
+                        ● {p.status || "Checking"}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* STEP 3: HYPERPARAMETERS & RATE SETTINGS */}
+        {step === 3 && (
+"use client";
+
+import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { 
+  Play, 
+  ChevronRight, 
+  ChevronLeft, 
+  Server, 
+  Settings, 
+  BookOpen, 
+  TrendingUp, 
+  ShieldAlert,
+  HelpCircle
+} from "lucide-react";
+
+const API_BASE = "http://localhost:8000";
+
+interface Provider {
+  id: number;
+        
+        // Auto select first suite
+        if (suiteData.length > 0) {
+          setSelectedSuites([suiteData[0].id]);
+        }
+
+        // Fetch Models Catalog
+        const modelRes = await fetch(`${API_BASE}/api/models`);
+        const modelData = await modelRes.json();
+        setModels(modelData);
+        if (modelData.length > 0) {
+          // Default to gemini-1.5-flash if available, otherwise first model
+          const defaultModel = modelData.find((m: any) => m.name === "gemini-1.5-flash") || modelData[0];
+          setSelectedModel(defaultModel);
+          setModelName(defaultModel.name);
+          setRevision(defaultModel.revision || "latest");
+          setQuantization(defaultModel.quantization || "FP16");
+          setContextLength(defaultModel.context_length || 8192);
+          setParametersSize(defaultModel.parameters || "8B");
+          setArchitecture(defaultModel.architecture || "Llama");
+        }
+        
+        // Fetch active provider health in background
+        for (const p of activeProvs) {
+          checkHealth(p.id);
+        }
+      } catch (err) {
+        console.error("Failed to load wizard sources:", err);
+      } finally {
+        setLoadingProviders(false);
+      }
+    };
+    loadWizardData();
+  }, []);
+
+  const checkHealth = async (id: number) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/providers/${id}/health`, { method: "POST" });
+      const data = await res.json();
+      setProviders(prev => prev.map(p => {
+        if (p.id === id) {
+                {models.length === 0 ? (
+                  <div className="text-xs text-zinc-500 font-mono py-8 text-center border border-dashed border-zinc-850 rounded-xl">
+                    Querying registered models... Register models in Models Library first.
+                  </div>
+                ) : filteredModels.length === 0 ? (
+                  <div className="text-xs text-zinc-500 font-mono py-8 text-center border border-dashed border-zinc-850 rounded-xl">
+                    No models found matching "{searchModelQuery}"
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-64 overflow-y-auto pr-1">
+                    {filteredModels.map((m) => {
+                      const isSelected = selectedModel?.id === m.id || modelName === m.name;
+                      return (
+                        <div
+                          key={m.id}
+                          onClick={() => selectModel(m)}
+                          className={`border p-3.5 rounded-xl cursor-pointer transition-all flex flex-col justify-between ${
+                            isSelected ? "border-cyan-500 bg-cyan-950/15" : "border-zinc-800 bg-zinc-900/30 hover:border-zinc-700"
+                          }`}
+                        >
+                          <div className="flex justify-between items-start">
+                            <h4 className="font-semibold text-sm text-zinc-100">{m.name}</h4>
+                            <span className="text-[9px] bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded uppercase font-mono">
+                              {m.architecture}
+                            </span>
+                          </div>
+                          <div className="flex gap-3 text-[10px] text-zinc-500 mt-2 font-mono">
+                            <span>Params: {m.parameters || "N/A"}</span>
+                            <span>Ctx: {m.context_length ? m.context_length.toLocaleString() : "N/A"}</span>
+                            <span>Quant: {m.quantization}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* STEP 2: PROVIDERS SELECTION */}
+        {step === 2 && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-bold text-zinc-200 flex items-center gap-2">
+                <Server className="h-5 w-5 text-cyan-500" />
+                Select Inference Runtimes
+              </h3>
+              <div className="w-64">
+                <input 
+                  type="text" 
+                  placeholder="Search runtime/provider..."
+                  value={searchProviderQuery} 
+                  onChange={(e) => setSearchProviderQuery(e.target.value)} 
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs font-sans focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+            </div>
+
+            {loadingProviders ? (
+
+      {/* Form Steps */}
+      <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-8 min-h-[380px] flex flex-col justify-between">
+        
+        {/* STEP 1: MODEL SELECTION */}
+        {step === 1 && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-bold text-zinc-200 flex items-center gap-2">
+                <Settings className="h-5 w-5 text-cyan-500" />
+                Select Target Model
+              </h3>
+              <span className="text-xs text-zinc-500 font-mono">Step 1 of 5</span>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Benchmark Run Name</label>
+                  <input 
+                    type="text" 
+                    value={runName} 
+                    onChange={(e) => setRunName(e.target.value)} 
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-sm font-sans focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Search Models Catalog</label>
+                  <input 
+                    type="text" 
+                    placeholder="Search e.g. gemini, llama..."
+                    value={searchModelQuery} 
+                    onChange={(e) => setSearchModelQuery(e.target.value)} 
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-sm font-sans focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs uppercase font-bold tracking-wider text-zinc-500 block mb-1">Select Model Parameters</label>
+                {models.length === 0 ? (
+"use client";
+
+import React, { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
+import { 
+  Play, 
+  ChevronRight, 
+  ChevronLeft, 
+  ChevronDown,
+  Server, 
+  Settings, 
+  BookOpen, 
+  TrendingUp, 
+  ShieldAlert,
+  HelpCircle
+} from "lucide-react";
+
+const API_BASE = "http://localhost:8000";
+
+interface Provider {
+  id: number;
+  name: string;
+  type: string;
+  base_url: string;
+  enabled: boolean;
+  status?: string;
+  models?: string[];
+}
+
+interface PromptSuite {
+  id: number;
+  name: string;
+  description: string;
+}
+
+export default function NewBenchmark() {
+  const router = useRouter();
+  const [step, setStep] = useState(1);
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [suites, setSuites] = useState<PromptSuite[]>([]);
+  const [loadingProviders, setLoadingProviders] = useState(true);
+
+  interface Model {
+    id: number;
+    name: string;
+    revision?: string;
+    quantization?: string;
+    size_bytes?: number;
+    context_length?: number;
+    parameters?: string;
+    architecture?: string;
+  }
+
+  const [models, setModels] = useState<Model[]>([]);
+  const [selectedModel, setSelectedModel] = useState<Model | null>(null);
+  const [searchModelQuery, setSearchModelQuery] = useState("");
+  const [searchProviderQuery, setSearchProviderQuery] = useState("");
+  
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Form Fields State
+  const [runName, setRunName] = useState("Run Comparison - " + new Date().toLocaleString());
+  const [modelName, setModelName] = useState("qwen2.5-7b-instruct");
+  const [revision, setRevision] = useState("latest");
+  const [quantization, setQuantization] = useState("INT4");
+  const [contextLength, setContextLength] = useState(32768);
+  const [parametersSize, setParametersSize] = useState("7B");
+  const [architecture, setArchitecture] = useState("Qwen2");
+
+  const [selectedProviders, setSelectedProviders] = useState<number[]>([]);
+  const [selectedSuites, setSelectedSuites] = useState<number[]>([]);
+
+  // Settings
+  const [temperature, setTemperature] = useState(0.0);
+  const [topP, setTopP] = useState(1.0);
+  const [topK, setTopK] = useState(50);
+  const [seed, setSeed] = useState(42);
+  const [maxTokens, setMaxTokens] = useState(128);
+  const [stopSequences, setStopSequences] = useState("");
+  const [useIdenticalSettings, setUseIdenticalSettings] = useState(true);
+
+  // Execution config
+  const [warmups, setWarmups] = useState(2);
+  const [repetitions, setRepetitions] = useState(3);
+  const [concurrency, setConcurrency] = useState(2);
+  const [requestRate, setRequestRate] = useState<number | null>(null);
+
+  // Judge LLM config
+  const [useJudge, setUseJudge] = useState(false);
+  const [judgeProviderId, setJudgeProviderId] = useState<number | null>(null);
+  const [judgeModelName, setJudgeModelName] = useState("");
+
+  useEffect(() => {
+    const loadWizardData = async () => {
+      try {
+        // Fetch Providers
+        const provRes = await fetch(`${API_BASE}/api/providers`);
+        const provs = await provRes.json();
+        
+        // Load Provider statuses in background
+        const activeProvs = provs.filter((p: Provider) => p.enabled);
+        setProviders(activeProvs);
+        
+        // Fetch Prompt Suites
+        const suiteRes = await fetch(`${API_BASE}/api/prompts`);
+        const suiteData = await suiteRes.json();
+        setSuites(suiteData);
+        
+        // Auto select first suite
+        if (suiteData.length > 0) {
+          setSelectedSuites([suiteData[0].id]);
+        }
+
+        // Fetch Models Catalog
+        const modelRes = await fetch(`${API_BASE}/api/models`);
+        const modelData = await modelRes.json();
+        setModels(modelData);
+        if (modelData.length > 0) {
+          const defaultModel = modelData.find((m: any) => m.name === "gemini-1.5-flash") || modelData[0];
+          setSelectedModel(defaultModel);
+          setModelName(defaultModel.name);
+          setSearchModelQuery(defaultModel.name);
+          setRevision(defaultModel.revision || "latest");
+          setQuantization(defaultModel.quantization || "FP16");
+          setContextLength(defaultModel.context_length || 8192);
+          setParametersSize(defaultModel.parameters || "8B");
+          setArchitecture(defaultModel.architecture || "Llama");
+        }
+        
+        // Fetch active provider health in background
+        for (const p of activeProvs) {
+          checkHealth(p.id);
+        }
+      } catch (err) {
+        console.error("Failed to load wizard sources:", err);
+      } finally {
+        setLoadingProviders(false);
+      }
+    };
+    loadWizardData();
+  }, []);
+
+  // Click outside listener for custom searchable dropdown (combobox)
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, []);
+
+  const checkHealth = async (id: number) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/providers/${id}/health`, { method: "POST" });
+      const data = await res.json();
+      setProviders(prev => prev.map(p => {
+        if (p.id === id) {
+          return { ...p, status: data.status, models: data.models };
+        }
+        return p;
+      }));
+    } catch (err) {
+      setProviders(prev => prev.map(p => {
+        if (p.id === id) {
+          return { ...p, status: "OFFLINE" };
+        }
+        return p;
+      }));
+    }
+  };
+
+  const selectModel = (m: Model) => {
+    setSelectedModel(m);
+    setModelName(m.name);
+    setRevision(m.revision || "latest");
+    setQuantization(m.quantization || "FP16");
+    setContextLength(m.context_length || 8192);
+    setParametersSize(m.parameters || "8B");
+    setArchitecture(m.architecture || "Llama");
+  };
+
+  const filteredModels = models.filter(m => 
+    m.name.toLowerCase().includes(searchModelQuery.toLowerCase()) ||
+    (m.architecture && m.architecture.toLowerCase().includes(searchModelQuery.toLowerCase()))
+  );
+
+  const filteredProviders = providers.filter(p => 
+    p.name.toLowerCase().includes(searchProviderQuery.toLowerCase()) ||
+    p.type.toLowerCase().includes(searchProviderQuery.toLowerCase())
+  );
+
+  const handleProviderToggle = (id: number) => {
+    setSelectedProviders(prev => 
+      prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]
+    );
+  };
+
+  const handleSuiteToggle = (id: number) => {
+    setSelectedSuites(prev => 
+      prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]
+    );
+  };
+
+  const handleLaunch = async () => {
+    if (selectedProviders.length === 0) {
+      alert("Please select at least one inference provider.");
+      return;
+    }
+    if (selectedSuites.length === 0) {
+      alert("Please select at least one prompt suite.");
+      return;
+    }
+
+    const payload = {
+      name: runName,
+      config_create: {
+        name: runName + " Configuration",
+        model_name: modelName,
+        model_revision: revision,
+        model_quantization: quantization,
+        model_context_length: contextLength,
+        model_parameters: parametersSize,
+        model_architecture: architecture,
+        temperature: temperature,
+        top_p: topP,
+        top_k: topK,
+        seed: seed,
+        max_tokens: maxTokens,
+        stop_sequences: stopSequences || null,
+        repetitions: repetitions,
+        warmup_requests: warmups,
+        concurrency: concurrency,
+        request_rate: requestRate,
+        use_identical_settings: useIdenticalSettings
+      },
+      provider_ids: selectedProviders,
+      prompt_suite_ids: selectedSuites,
+      llm_judge_provider_id: useJudge ? judgeProviderId : null,
+      llm_judge_model_name: useJudge ? judgeModelName : null
+    };
+
+    try {
+      const res = await fetch(`${API_BASE}/api/benchmarks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        const runData = await res.json();
+        router.push(`/benchmarks/${runData.id}`);
+      } else {
+        const err = await res.json();
+        alert("Failed to queue benchmark: " + (err.detail || res.statusText));
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error connection mapping.");
+    }
+  };
+
+  return (
+    <div className="p-8 max-w-4xl mx-auto space-y-8 flex-1">
+      {/* Header */}
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">Create Experiment</h1>
+        <p className="text-zinc-400 text-sm mt-1">Benchmarking wizard for testing identical models and configurations fairly.</p>
+      </div>
+
+      {/* Step Indicators */}
+      <div className="flex items-center gap-2 border-b border-zinc-800 pb-4">
+        {[
+          { num: 1, label: "Model" },
+          { num: 2, label: "Providers" },
+          { num: 3, label: "Settings" },
+          { num: 4, label: "Prompts" },
+          { num: 5, label: "LLM Judge" }
+        ].map((s) => (
+          <React.Fragment key={s.num}>
+            <div className={`flex items-center gap-2 px-3 py-1 rounded text-sm ${
+              step === s.num ? "bg-cyan-950 text-cyan-400 font-bold border border-cyan-800" :
+              step > s.num ? "text-emerald-400" : "text-zinc-500"
+            }`}>
+              <span className="w-5 h-5 rounded-full bg-zinc-850 flex items-center justify-center text-xs font-mono">
+                {s.num}
+              </span>
+              <span>{s.label}</span>
+            </div>
+            {s.num < 5 && <ChevronRight className="h-4 w-4 text-zinc-650" />}
+          </React.Fragment>
+        ))}
+      </div>
+
+      {/* Form Steps */}
+      <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-8 min-h-[380px] flex flex-col justify-between">
+        
+        {/* STEP 1: MODEL SELECTION */}
+        {step === 1 && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-bold text-zinc-200 flex items-center gap-2">
+                <Settings className="h-5 w-5 text-cyan-500" />
+                Select Target Model Configuration
+              </h3>
+              <span className="text-xs text-zinc-500 font-mono">Step 1 of 5</span>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-1.5">
+                <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Benchmark Run Name</label>
+                <input 
+                  type="text" 
+                  value={runName} 
+                  onChange={(e) => setRunName(e.target.value)} 
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-sm font-sans focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              {/* Combobox style Searchable Dropdown */}
+              <div className="space-y-1.5 relative" ref={dropdownRef}>
+                <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Target Model (Catalog)</label>
+                <div className="relative">
+                  <input 
+                    type="text" 
+                    placeholder="Search and select model..."
+                    value={searchModelQuery} 
+                    onFocus={() => setIsOpen(true)}
+                    onChange={(e) => {
+                      setSearchModelQuery(e.target.value);
+                      setIsOpen(true);
+                    }}
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-sm font-mono focus:outline-none focus:border-cyan-500 pr-10"
+                  />
+                  <div 
+                    className="absolute right-3 top-3.5 cursor-pointer text-zinc-500 hover:text-white"
+                    onClick={() => setIsOpen(!isOpen)}
+                  >
+                    <ChevronDown className="h-4 w-4" />
+                  </div>
+                </div>
+
+                {isOpen && (
+                  <div className="absolute z-50 w-full mt-1.5 bg-[#0e0e11] border border-zinc-800 rounded-lg shadow-xl max-h-60 overflow-y-auto divide-y divide-zinc-850">
+                    {filteredModels.length === 0 ? (
+                      <div className="p-3 text-xs text-zinc-500 font-mono text-center">
+                        No models found matching "{searchModelQuery}"
+                      </div>
+                    ) : (
+                      filteredModels.map((m) => {
+                        const isSelected = selectedModel?.id === m.id || modelName === m.name;
+                        return (
+                          <div
+                            key={m.id}
+                            onClick={() => {
+                              selectModel(m);
+                              setSearchModelQuery(m.name);
+                              setIsOpen(false);
+                            }}
+                            className={`p-3 cursor-pointer transition-colors text-left flex justify-between items-center ${
+                              isSelected ? "bg-cyan-950/20 text-cyan-400 font-bold" : "hover:bg-zinc-900 text-zinc-300"
+                            }`}
+                          >
+                            <div>
+                              <div className="text-sm font-sans">{m.name}</div>
+                              <div className="flex gap-3 text-[10px] text-zinc-500 mt-1 font-mono">
+                                <span>Params: {m.parameters || "N/A"}</span>
+                                <span>Ctx: {m.context_length ? m.context_length.toLocaleString() : "N/A"}</span>
+                                <span>Quant: {m.quantization}</span>
+                              </div>
+                            </div>
+                            <span className="text-[9px] bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded uppercase font-mono">
+                              {m.architecture}
+                            </span>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Selected Model specifications recap */}
+            {selectedModel && (
+              <div className="bg-zinc-900/30 border border-zinc-800/80 rounded-xl p-4 space-y-2 mt-4">
+                <span className="text-[10px] uppercase font-bold tracking-widest text-zinc-500">Selected Model Specs Recap</span>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs font-mono">
+                  <div>
+                    <span className="text-zinc-500 block">Architecture</span>
+                    <span className="text-zinc-200 font-bold">{architecture}</span>
+                  </div>
+                  <div>
+                    <span className="text-zinc-500 block">Parameter size</span>
+                    <span className="text-zinc-200 font-bold">{parametersSize}</span>
+                  </div>
+                  <div>
+                    <span className="text-zinc-500 block">Quantization</span>
+                    <span className="text-cyan-400 font-bold">{quantization}</span>
+                  </div>
+                  <div>
+                    <span className="text-zinc-500 block">Context Length</span>
+                    <span className="text-zinc-200 font-bold">{contextLength.toLocaleString()} tokens</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* STEP 2: PROVIDERS SELECTION */}
+        {step === 2 && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-bold text-zinc-200 flex items-center gap-2">
+                <Server className="h-5 w-5 text-cyan-500" />
+                Select Inference Runtimes
+              </h3>
+              <div className="w-64">
+                <input 
+                  type="text" 
+                  placeholder="Search runtime/provider..."
+                  value={searchProviderQuery} 
+                  onChange={(e) => setSearchProviderQuery(e.target.value)} 
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs font-sans focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+            </div>
+
+            {loadingProviders ? (
+              <div className="text-zinc-500">Checking local configurations...</div>
+            ) : providers.length === 0 ? (
+              <div className="text-zinc-500 text-sm">No active providers found. Add providers in Settings first.</div>
+            ) : filteredProviders.length === 0 ? (
+              <div className="text-xs text-zinc-500 font-mono py-8 text-center border border-dashed border-zinc-850 rounded-xl">
+                No active runtimes found matching "{searchProviderQuery}"
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[350px] overflow-y-auto pr-1">
+                {filteredProviders.map((p) => (
+                  <div 
+                    key={p.id}
+                    onClick={() => handleProviderToggle(p.id)}
+                    className={`border p-4 rounded-xl cursor-pointer transition-all flex flex-col justify-between ${
+                      selectedProviders.includes(p.id) ? "border-cyan-500 bg-cyan-950/10" : "border-zinc-800 hover:border-zinc-700 bg-zinc-900/30"
+                    }`}
+                  >
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h4 className="font-semibold text-zinc-200">{p.name}</h4>
+                        <span className="text-[10px] bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded uppercase font-mono mt-1 inline-block">
+                          {p.type}
+                        </span>
+                      </div>
+                      <input 
+                        type="checkbox" 
+                        checked={selectedProviders.includes(p.id)}
+                        onChange={() => {}} // toggled on card click
+                        className="rounded border-zinc-700 text-cyan-500 focus:ring-cyan-500"
+                      />
+                    </div>
+                    
+                    <div className="flex justify-between items-center text-xs mt-4 text-zinc-500 border-t border-zinc-800/80 pt-2 font-mono">
+                      <span className="truncate max-w-[200px]" title={p.base_url}>{p.base_url}</span>
+                      <span className={
+                        p.status === "ONLINE" ? "text-emerald-500 font-semibold" :
+                        p.status === "OFFLINE" ? "text-red-500 font-semibold" : "text-zinc-600 animate-pulse"
+                      }>
+                        ● {p.status || "Checking"}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* STEP 3: HYPERPARAMETERS & RATE SETTINGS */}
+        {step === 3 && (
+          <div className="space-y-6">
+            <h3 className="text-lg font-bold text-zinc-200 flex items-center gap-2">
+              <TrendingUp className="h-5 w-5 text-cyan-500" />
+              Generation & Execution Settings
+            </h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-1">
+                <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Temperature</label>
+                <div className="flex items-center gap-3">
+                  <input 
+                    type="range" min="0" max="2" step="0.1" 
+                    value={temperature} 
+                    onChange={(e) => setTemperature(parseFloat(e.target.value))} 
+                    className="flex-1 accent-cyan-500"
+                  />
+                  <span className="text-xs font-mono text-cyan-400 w-8">{temperature.toFixed(1)}</span>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Top P</label>
+                <div className="flex items-center gap-3">
+                  <input 
+                    type="range" min="0" max="1" step="0.05" 
+                    value={topP} 
+                    onChange={(e) => setTopP(parseFloat(e.target.value))} 
+                    className="flex-1 accent-cyan-500"
+                  />
+                  <span className="text-xs font-mono text-cyan-400 w-8">{topP.toFixed(2)}</span>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Max Output Tokens</label>
+                <input 
+                  type="number" 
+                  value={maxTokens} 
+                  onChange={(e) => setMaxTokens(parseInt(e.target.value))} 
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2 text-sm focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Seed</label>
+                <input 
+                  type="number" 
+                  value={seed} 
+                  onChange={(e) => setSeed(parseInt(e.target.value))} 
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2 text-sm focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Concurrency (Simultaneous requests)</label>
+                <select 
+                  value={concurrency} 
+                  onChange={(e) => setConcurrency(parseInt(e.target.value))}
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2 text-sm focus:outline-none focus:border-cyan-500"
+                >
+                  <option value={1}>1 (Sequential)</option>
+                  <option value={2}>2</option>
+                  <option value={4}>4</option>
+                  <option value={8}>8</option>
+                  <option value={16}>16</option>
+                  <option value={32}>32</option>
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Repetitions (Sample size)</label>
+                <input 
+                  type="number" 
+                  value={repetitions} 
+                  onChange={(e) => setRepetitions(parseInt(e.target.value))} 
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2 text-sm focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Warm-up Requests</label>
+                <input 
+                  type="number" 
+                  value={warmups} 
+                  onChange={(e) => setWarmups(parseInt(e.target.value))} 
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2 text-sm focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div className="flex items-center gap-3 pt-6">
+                <input 
+                  type="checkbox" 
+                  id="identical"
+                  checked={useIdenticalSettings}
+                  onChange={(e) => setUseIdenticalSettings(e.target.checked)}
+                  className="rounded border-zinc-700 text-cyan-500 focus:ring-cyan-500"
+                />
+                <label htmlFor="identical" className="text-xs font-semibold text-zinc-300 cursor-pointer">
+                  Use identical settings across all providers
+                </label>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* STEP 4: PROMPT SUITES SELECTION */}
+        {step === 4 && (
+          <div className="space-y-6">
+            <h3 className="text-lg font-bold text-zinc-200 flex items-center gap-2">
+              <BookOpen className="h-5 w-5 text-cyan-500" />
+              Select Test Prompt Suites
+            </h3>
+
+            <div className="space-y-3">
+              {suites.map((s) => (
+                <div 
+                  key={s.id}
+                  onClick={() => handleSuiteToggle(s.id)}
+                  className={`border p-4 rounded-xl cursor-pointer transition-all flex justify-between items-center ${
+                    selectedSuites.includes(s.id) ? "border-cyan-500 bg-cyan-950/10" : "border-zinc-800 hover:border-zinc-700 bg-zinc-900/30"
+                  }`}
+                >
+                  <div className="space-y-1">
+                    <h4 className="font-semibold text-zinc-200">{s.name}</h4>
+                    <p className="text-xs text-zinc-500">{s.description}</p>
+                  </div>
+                  <input 
+                    type="checkbox" 
+                    checked={selectedSuites.includes(s.id)}
+                    onChange={() => {}} // toggled on container click
+                    className="rounded border-zinc-700 text-cyan-500 focus:ring-cyan-500"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* STEP 5: LLM JUDGE */}
+        {step === 5 && (
+          <div className="space-y-6">
+            <h3 className="text-lg font-bold text-zinc-200 flex items-center gap-2">
+              <ShieldAlert className="h-5 w-5 text-cyan-500" />
+              Configure LLM-as-a-Judge Evaluation (Optional)
+            </h3>
+
+            <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-5 space-y-4">
+              <div className="flex items-center gap-3">
+                <input 
+                  type="checkbox" 
+                  id="enable_judge"
+                  checked={useJudge}
+                  onChange={(e) => setUseJudge(e.target.checked)}
+                  className="rounded border-zinc-700 text-cyan-500 focus:ring-cyan-500"
+                />
+                <label htmlFor="enable_judge" className="text-sm font-semibold text-zinc-200 cursor-pointer">
+                  Activate automatic semantic LLM Judge scoring
+                </label>
+              </div>
+
+              {useJudge && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-zinc-800/80">
+                  <div className="space-y-1.5">
+                    <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Judge Provider</label>
+                    <select 
+                      value={judgeProviderId || ""} 
+                      onChange={(e) => setJudgeProviderId(parseInt(e.target.value))}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2 text-sm focus:outline-none focus:border-cyan-500"
+                    >
+                      <option value="">Select Provider...</option>
+                      {providers.map(p => (
+                        <option key={p.id} value={p.id}>{p.name} ({p.type})</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Judge Model Name</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. qwen3-8b"
+                      value={judgeModelName} 
+                      onChange={(e) => setJudgeModelName(e.target.value)} 
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2 text-sm font-mono focus:outline-none focus:border-cyan-500"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            <p className="text-xs text-zinc-500 leading-relaxed">
+              When enabled, a separate inference endpoint evaluates generated answers against targets and assigns a normalized quality score. 
+              The judge runtime should be isolated from the system configuration currently under benchmark test.
+            </p>
+          </div>
+        )}
+
+        {/* Wizard Controls */}
+        <div className="flex justify-between items-center border-t border-zinc-850 pt-6 mt-8">
+          <div>
+            {step > 1 && (
+              <button 
+                type="button" 
+                onClick={() => setStep(prev => prev - 1)}
+                className="flex items-center gap-2 px-4 py-2 border border-zinc-850 bg-zinc-900 text-zinc-300 hover:text-white rounded-lg text-sm transition-colors"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Previous
+              </button>
+            )}
+          </div>
+          <div>
+            {step < 5 ? (
+              <button 
+                type="button" 
+                onClick={() => setStep(prev => prev + 1)}
+                className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold bg-cyan-500 text-zinc-950 hover:bg-cyan-400 transition-colors"
+              >
+                Next Step
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            ) : (
+              <button 
+                type="button" 
+                onClick={handleLaunch}
+                className="flex items-center gap-2 px-6 py-2 rounded-lg text-sm font-bold bg-emerald-500 text-zinc-950 hover:bg-emerald-400 transition-colors"
+              >
+                <Play className="h-4 w-4 fill-zinc-950 text-zinc-950" />
+                Execute Benchmark
+              </button>
+            )}
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+        return p;
+      }));
+    }
+  };
+
+  const selectModel = (m: Model) => {
+    setSelectedModel(m);
+    setModelName(m.name);
+    setRevision(m.revision || "latest");
+    setQuantization(m.quantization || "FP16");
+    setContextLength(m.context_length || 8192);
+    setParametersSize(m.parameters || "8B");
+    setArchitecture(m.architecture || "Llama");
+  };
+
+  const filteredModels = models.filter(m => 
+    m.name.toLowerCase().includes(searchModelQuery.toLowerCase()) ||
+    (m.architecture && m.architecture.toLowerCase().includes(searchModelQuery.toLowerCase()))
+  );
+
+  const filteredProviders = providers.filter(p => 
+    p.name.toLowerCase().includes(searchProviderQuery.toLowerCase()) ||
+    p.type.toLowerCase().includes(searchProviderQuery.toLowerCase())
+  );
+
+  const handleProviderToggle = (id: number) => {
+    setSelectedProviders(prev => 
+      prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]
+    );
+  };
+
+  const handleSuiteToggle = (id: number) => {
+    setSelectedSuites(prev => 
+      prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]
+    );
+  };
+
+  const handleLaunch = async () => {
+    if (selectedProviders.length === 0) {
+      alert("Please select at least one inference provider.");
+      return;
+      return dictionaryMatch;
+    }
+    return {
+      id: Math.random(),
+      name: modelName,
+      architecture: "API Provided",
+      parameters: "N/A",
+      quantization: "API",
+      context_length: undefined
+    };
+  });
+
+  // If no dynamic models found (maybe no providers online yet), fallback to static catalog so it's not empty
+  const baseModelsList = dynamicModels.length > 0 ? dynamicModels : models;
+
+  const filteredModels = baseModelsList.filter(m => 
+    m.name.toLowerCase().includes(searchModelQuery.toLowerCase()) ||
+    (m.architecture && m.architecture.toLowerCase().includes(searchModelQuery.toLowerCase()))
+  );
+
+  const filteredProviders = providers.filter(p => 
+    p.name.toLowerCase().includes(searchProviderQuery.toLowerCase()) ||
+    p.type.toLowerCase().includes(searchProviderQuery.toLowerCase())
+  );
+
+  const handleProviderToggle = (id: number) => {
+    setSelectedProviders(prev => 
+      prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]
+    );
+  };
+
+  const handleSuiteToggle = (id: number) => {
+    setSelectedSuites(prev => 
+      prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]
+    );
+  };
+
+  const handleLaunch = async () => {
+    if (selectedProviders.length === 0) {
+      alert("Please select at least one inference provider.");
+      return;
+    }
+    if (selectedSuites.length === 0) {
+      alert("Please select at least one prompt suite.");
+      return;
+    }
+
+    const payload = {
+      name: runName,
+      config_create: {
+        name: runName + " Configuration",
+        model_name: modelName,
+        model_revision: revision,
+        model_quantization: quantization,
+        model_context_length: contextLength,
+        model_parameters: parametersSize,
+        model_architecture: architecture,
+        temperature: temperature,
+        top_p: topP,
+        top_k: topK,
+        seed: seed,
+        max_tokens: maxTokens,
+        stop_sequences: stopSequences || null,
+        repetitions: repetitions,
+        warmup_requests: warmups,
+        concurrency: concurrency,
+        request_rate: requestRate,
+        use_identical_settings: useIdenticalSettings
+      },
+      provider_ids: selectedProviders,
+      prompt_suite_ids: selectedSuites,
+      llm_judge_provider_id: useJudge ? judgeProviderId : null,
+      llm_judge_model_name: useJudge ? judgeModelName : null
+    };
+
+    try {
+      const res = await fetch(`${API_BASE}/api/benchmarks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        const runData = await res.json();
+        router.push(`/benchmarks/${runData.id}`);
+      } else {
+        const err = await res.json();
+        alert("Failed to queue benchmark: " + (err.detail || res.statusText));
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error connection mapping.");
+    }
+  };
+
+  return (
+    <div className="p-8 max-w-4xl mx-auto space-y-8 flex-1">
+      {/* Header */}
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">Create Experiment</h1>
+        <p className="text-zinc-400 text-sm mt-1">Benchmarking wizard for testing identical models and configurations fairly.</p>
+      </div>
+      </div>
+
+      {/* Step Indicators */}
+      <div className="flex items-center gap-2 border-b border-zinc-800 pb-4">
+        {[
+          { num: 1, label: "Model & Providers" },
+          { num: 2, label: "Benchmark Configuration" },
+          { num: 3, label: "Review & Run" }
+        ].map((s) => (
+          <React.Fragment key={s.num}>
+            <div className={`flex items-center gap-2 px-3 py-1 rounded text-sm ${
+              step === s.num ? "bg-cyan-950 text-cyan-400 font-bold border border-cyan-800" :
+              step > s.num ? "text-emerald-400" : "text-zinc-500"
+            }`}>
+              <span className="w-5 h-5 rounded-full bg-zinc-850 flex items-center justify-center text-xs font-mono">
+                {s.num}
+              </span>
+              <span>{s.label}</span>
+            </div>
+            {s.num < 3 && <ChevronRight className="h-4 w-4 text-zinc-650" />}
+          </React.Fragment>
+        ))}
+      </div>
+
+      {/* Form Steps */}
+      <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-8 min-h-[380px] flex flex-col justify-between">
+        
+        {/* STEP 1: MODEL & PROVIDERS */}
+        {step === 1 && (
+          <div className="space-y-10">
+            {/* Target Model Sub-section */}
+            <div className="space-y-6">
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-bold text-zinc-200 flex items-center gap-2">
+                  <Settings className="h-5 w-5 text-cyan-500" />
+                  Target Model
+                </h3>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-1.5">
+                  <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Benchmark Run Name</label>
+                  <input 
+                    type="text" 
+                    value={runName} 
+                    onChange={(e) => setRunName(e.target.value)} 
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-sm font-sans focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+
+                <div className="space-y-1.5 relative" ref={dropdownRef}>
+                  <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Target Model (Catalog)</label>
+                  <div className="relative">
+                    <input 
+                      type="text" 
+                      placeholder="Search and select model..."
+                      value={searchModelQuery} 
+                      onFocus={() => setIsOpen(true)}
+                      onChange={(e) => {
+                        setSearchModelQuery(e.target.value);
+                        setIsOpen(true);
+                      }}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-sm font-mono focus:outline-none focus:border-cyan-500 pr-10"
+                    />
+                    <div 
+                      className="absolute right-3 top-3.5 cursor-pointer text-zinc-500 hover:text-white"
+                      onClick={() => setIsOpen(!isOpen)}
+                    >
+                      <ChevronDown className="h-4 w-4" />
+                    </div>
+                  </div>
+
+                  {isOpen && (
+                    <div className="absolute z-50 w-full mt-1.5 bg-[#0e0e11] border border-zinc-800 rounded-lg shadow-xl max-h-60 overflow-y-auto divide-y divide-zinc-850">
+                      {filteredModels.length === 0 ? (
+                        <div className="p-3 text-xs text-zinc-500 font-mono text-center">
+                          No models found matching "{searchModelQuery}"
+                        </div>
+                      ) : (
+                        filteredModels.map((m) => {
+                          const isSelected = selectedModel?.id === m.id || modelName === m.name;
+                          return (
+                            <div
+                              key={m.id}
+                              onClick={() => {
+                                selectModel(m);
+                                setSearchModelQuery(m.name);
+                                setIsOpen(false);
+                              }}
+                              className={`p-3 cursor-pointer transition-colors text-left flex justify-between items-center ${
+                                isSelected ? "bg-cyan-950/20 text-cyan-400 font-bold" : "hover:bg-zinc-900 text-zinc-300"
+                              }`}
+                            >
+                              <div>
+                                <div className="text-sm font-sans">{m.name}</div>
+                                <div className="flex gap-3 text-[10px] text-zinc-500 mt-1 font-mono">
+                                  <span>Params: {m.parameters || "N/A"}</span>
+                                  <span>Ctx: {m.context_length ? m.context_length.toLocaleString() : "N/A"}</span>
+                                  <span>Quant: {m.quantization}</span>
+                                </div>
+                              </div>
+                              <span className="text-[9px] bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded uppercase font-mono">
+                                {m.architecture}
+                              </span>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {selectedModel && (
+                <div className="bg-zinc-900/30 border border-zinc-800/80 rounded-xl p-4 space-y-2 mt-4">
+                  <span className="text-[10px] uppercase font-bold tracking-widest text-zinc-500">Selected Model Specs Recap</span>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs font-mono">
+                    <div>
+                      <span className="text-zinc-500 block">Architecture</span>
+                      <span className="text-zinc-200 font-bold">{architecture}</span>
+                    </div>
+                    <div>
+                      <span className="text-zinc-500 block">Parameter size</span>
+                      <span className="text-zinc-200 font-bold">{parametersSize}</span>
+                    </div>
+                    <div>
+                      <span className="text-zinc-500 block">Quantization</span>
+                      <span className="text-cyan-400 font-bold">{quantization}</span>
+                    </div>
+                    <div>
+                      <span className="text-zinc-500 block">Context Length</span>
+                      <span className="text-zinc-200 font-bold">{contextLength.toLocaleString()} tokens</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <hr className="border-zinc-800" />
+
+            {/* Providers Sub-section */}
+            <div className="space-y-6">
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-bold text-zinc-200 flex items-center gap-2">
+                  <Server className="h-5 w-5 text-cyan-500" />
+                  Inference Runtimes
+                </h3>
+                <div className="w-64">
+                  <input 
+                    type="text" 
+                    placeholder="Search runtime/provider..."
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, []);
+
+  const checkHealth = async (id: number) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/providers/${id}/health`, { method: "POST" });
+      const data = await res.json();
+      setProviders(prev => prev.map(p => {
+        if (p.id === id) {
+          return { ...p, status: data.status, models: data.models };
+        }
+        return p;
+      }));
+    } catch (err) {
+      setProviders(prev => prev.map(p => {
+        if (p.id === id) {
+          return { ...p, status: "OFFLINE" };
+        }
+        return p;
+      }));
+    }
+  };
+
+  const selectModel = (m: Model) => {
+    setSelectedModel(m);
+    setModelName(m.name);
+    setRevision(m.revision || "latest");
+    setQuantization(m.quantization || "FP16");
+    setContextLength(m.context_length || 8192);
+    setParametersSize(m.parameters || "8B");
+    setArchitecture(m.architecture || "Llama");
+  };
+
+  // Dynamically aggregate models from providers
+  const activeProviderModels = new Set<string>();
+  const targetProviders = selectedProviders.length > 0 
+    ? providers.filter(p => selectedProviders.includes(p.id)) 
+    : providers.filter(p => p.status === "ONLINE");
+    
+  targetProviders.forEach(p => {
+    if (p.models && Array.isArray(p.models)) {
+      p.models.forEach(m => activeProviderModels.add(m));
+    }
+  });
+
+  const dynamicModels: Model[] = Array.from(activeProviderModels).map(modelName => {
+    const dictionaryMatch = models.find(m => m.name === modelName);
+    if (dictionaryMatch) {
+      return dictionaryMatch;
+  const [stopSequences, setStopSequences] = useState("");
+  const [useIdenticalSettings, setUseIdenticalSettings] = useState(true);
+
+  // Execution config
+  const [warmups, setWarmups] = useState(2);
+  const [repetitions, setRepetitions] = useState(3);
+  const [concurrency, setConcurrency] = useState(2);
+  const [requestRate, setRequestRate] = useState<number | null>(null);
+
+  // Judge LLM config (Keeping states to avoid breaking backend payload)
+  const [useJudge, setUseJudge] = useState(false);
+  const [judgeProviderId, setJudgeProviderId] = useState<number | null>(null);
+  const [judgeModelName, setJudgeModelName] = useState("");
+
+  useEffect(() => {
+    const loadWizardData = async () => {
+      try {
+        // Fetch Providers
+        const provRes = await fetch(`${API_BASE}/api/providers`);
+        const provs = await provRes.json();
+        
+        // Load Provider statuses in background
+        const activeProvs = provs.filter((p: Provider) => p.enabled);
+        setProviders(activeProvs);
+        
+        // Fetch Prompt Suites
+        const suiteRes = await fetch(`${API_BASE}/api/prompts`);
+        const suiteData = await suiteRes.json();
+        setSuites(suiteData);
+        
+        // Auto select first suite
+        if (suiteData.length > 0) {
+          setSelectedSuites([suiteData[0].id]);
+        }
+
+        // Fetch Models Catalog
+        const modelRes = await fetch(`${API_BASE}/api/models`);
+        const modelData = await modelRes.json();
+        setModels(modelData);
+        if (modelData.length > 0) {
+          const defaultModel = modelData.find((m: any) => m.name === "gemini-1.5-flash") || modelData[0];
+          setSelectedModel(defaultModel);
+          setModelName(defaultModel.name);
+          setSearchModelQuery(defaultModel.name);
+          setRevision(defaultModel.revision || "latest");
+          setQuantization(defaultModel.quantization || "FP16");
+          setContextLength(defaultModel.context_length || 8192);
+          setParametersSize(defaultModel.parameters || "8B");
+          setArchitecture(defaultModel.architecture || "Llama");
+        }
+        
+        // Fetch active provider health in background
+        for (const p of activeProvs) {
+          checkHealth(p.id);
+        }
+      } catch (err) {
+        console.error("Failed to load wizard sources:", err);
+      } finally {
+        setLoadingProviders(false);
+      }
+    };
+    loadWizardData();
+  }, []);
+
+  // Click outside listener for custom searchable dropdown (combobox)
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+                    placeholder="Search runtime/provider..."
+                    value={searchProviderQuery} 
+                    onChange={(e) => setSearchProviderQuery(e.target.value)} 
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs font-sans focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+              </div>
+
+              {loadingProviders ? (
+                <div className="text-zinc-500">Checking local configurations...</div>
+              ) : providers.length === 0 ? (
+                <div className="text-zinc-500 text-sm">No active providers found. Add providers in Settings first.</div>
+              ) : filteredProviders.length === 0 ? (
+                <div className="text-xs text-zinc-500 font-mono py-8 text-center border border-dashed border-zinc-850 rounded-xl">
+                  No active runtimes found matching "{searchProviderQuery}"
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[350px] overflow-y-auto pr-1">
+                  {filteredProviders.map((p) => (
+                    <div 
+                      key={p.id}
+                      onClick={() => handleProviderToggle(p.id)}
+                      className={`border p-4 rounded-xl cursor-pointer transition-all flex flex-col justify-between ${
+                        selectedProviders.includes(p.id) ? "border-cyan-500 bg-cyan-950/10" : "border-zinc-800 hover:border-zinc-700 bg-zinc-900/30"
+                      }`}
+                    >
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h4 className="font-semibold text-zinc-200">{p.name}</h4>
+                          <span className="text-[10px] bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded uppercase font-mono mt-1 inline-block">
+                            {p.type}
+                          </span>
+                        </div>
+                        <input 
+                          type="checkbox" 
+                          checked={selectedProviders.includes(p.id)}
+                          onChange={() => {}} 
+                          className="rounded border-zinc-700 text-cyan-500 focus:ring-cyan-500"
+                        />
+                      </div>
+                      
+                      <div className="flex justify-between items-center text-xs mt-4 text-zinc-500 border-t border-zinc-800/80 pt-2 font-mono">
+                        <span className="truncate max-w-[200px]" title={p.base_url}>{p.base_url}</span>
+                        <span className={
+                          p.status === "ONLINE" ? "text-emerald-500 font-semibold" :
+                          p.status === "OFFLINE" ? "text-red-500 font-semibold" : "text-zinc-600 animate-pulse"
+                        }>
+                          ● {p.status || "Checking"}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* STEP 2: BENCHMARK CONFIGURATION */}
+        {step === 2 && (
+          <div className="space-y-10">
+            {/* Settings Sub-section */}
+            <div className="space-y-6">
+              <h3 className="text-lg font-bold text-zinc-200 flex items-center gap-2">
+                <TrendingUp className="h-5 w-5 text-cyan-500" />
+                Generation Settings
+              </h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-1">
+                  <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Temperature</label>
+                  <div className="flex items-center gap-3">
+                    <input 
+                      type="range" min="0" max="2" step="0.1" 
+                      value={temperature} 
+                      onChange={(e) => setTemperature(parseFloat(e.target.value))} 
+                      className="flex-1 accent-cyan-500"
+                    />
+                    <span className="text-xs font-mono text-cyan-400 w-8">{temperature.toFixed(1)}</span>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Top P</label>
+                  <div className="flex items-center gap-3">
+                    <input 
+                      type="range" min="0" max="1" step="0.05" 
+                      value={topP} 
+                      onChange={(e) => setTopP(parseFloat(e.target.value))} 
+                      className="flex-1 accent-cyan-500"
+                    />
+                    <span className="text-xs font-mono text-cyan-400 w-8">{topP.toFixed(2)}</span>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Max Output Tokens</label>
+                  <input 
+                    type="number" 
+                    value={maxTokens} 
+                    onChange={(e) => setMaxTokens(parseInt(e.target.value))} 
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2 text-sm focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Seed</label>
+                  <input 
+                    type="number" 
+                    value={seed} 
+                    onChange={(e) => setSeed(parseInt(e.target.value))} 
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2 text-sm focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Concurrency (Simultaneous requests)</label>
+                  <select 
+                    value={concurrency} 
+                    onChange={(e) => setConcurrency(parseInt(e.target.value))}
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2 text-sm focus:outline-none focus:border-cyan-500"
+                  >
+                    <option value={1}>1 (Sequential)</option>
+                    <option value={2}>2</option>
+                    <option value={4}>4</option>
+                    <option value={8}>8</option>
+                    <option value={16}>16</option>
+                    <option value={32}>32</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Repetitions (Sample size)</label>
+                  <input 
+                    type="number" 
+                    value={repetitions} 
+                    onChange={(e) => setRepetitions(parseInt(e.target.value))} 
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2 text-sm focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs uppercase font-bold tracking-wider text-zinc-500">Warm-up Requests</label>
+                  <input 
+                    type="number" 
+                    value={warmups} 
+                    onChange={(e) => setWarmups(parseInt(e.target.value))} 
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2 text-sm focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+

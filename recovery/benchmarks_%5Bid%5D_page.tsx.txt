@@ -1,0 +1,465 @@
+"use client";
+
+import React, { useState, useEffect, useRef } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { 
+  Play, 
+  Square, 
+  Activity, 
+  Cpu, 
+  CheckCircle, 
+  XCircle, 
+  Clock, 
+  TrendingUp, 
+  AlertTriangle,
+  Download,
+  Award
+} from "lucide-react";
+import { 
+  ResponsiveContainer, 
+  LineChart, 
+  Line, 
+  XAxis, 
+  YAxis, 
+  Tooltip, 
+  BarChart, 
+  Bar, 
+  Legend 
+} from "recharts";
+
+const API_BASE = "http://localhost:8000";
+
+interface RequestLog {
+  id: number;
+  provider: { id: number; name: string; type: string };
+  model_name: string;
+  request_index: number;
+  status: string;
+  latency_ms?: number;
+  ttft_ms?: number;
+  prompt_tokens: number;
+  output_tokens: number;
+  token_count_source: string;
+  response_text?: string;
+  error_message?: string;
+  quality_results: any[];
+}
+
+export default function BenchmarkDetails() {
+  const { id } = useParams();
+  const router = useRouter();
+  const [run, setRun] = useState<any>(null);
+  const [requests, setRequests] = useState<RequestLog[]>([]);
+  const [telemetry, setTelemetry] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [stopping, setStopping] = useState(false);
+  const eventSourceRef = useRef<EventSource | null>(null);
+
+  const fetchStaticData = async () => {
+    try {
+      const runRes = await fetch(`${API_BASE}/api/runs/${id}`);
+      if (!runRes.ok) return;
+      const runData = await runRes.json();
+      setRun(runData);
+
+      const resultsRes = await fetch(`${API_BASE}/api/runs/${id}/results`);
+      const resultsData = await resultsRes.json();
+      setRequests(resultsData);
+
+      const telRes = await fetch(`${API_BASE}/api/runs/${id}/telemetry`);
+      const telData = await telRes.json();
+      setTelemetry(telData);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchStaticData();
+    
+    // Connect to SSE for live updates
+    const eventSource = new EventSource(`${API_BASE}/api/events`);
+    eventSourceRef.current = eventSource;
+
+    eventSource.addEventListener("telemetry_update", (e: any) => {
+      const data = JSON.parse(e.data);
+      if (Number(data.run_id) === Number(id)) {
+        setTelemetry(prev => {
+          const next = [...prev, data];
+          return next.slice(-40); // Keep last 40 frames
+        });
+      }
+    });
+
+    const updateRequestInState = (reqData: any) => {
+      fetchStaticData(); // Re-fetch all request objects to update charts cleanly
+    };
+
+    eventSource.addEventListener("request_started", (e: any) => updateRequestInState(JSON.parse(e.data)));
+    eventSource.addEventListener("first_token", (e: any) => updateRequestInState(JSON.parse(e.data)));
+    eventSource.addEventListener("request_completed", (e: any) => updateRequestInState(JSON.parse(e.data)));
+    eventSource.addEventListener("request_failed", (e: any) => updateRequestInState(JSON.parse(e.data)));
+    eventSource.addEventListener("benchmark_completed", (e: any) => {
+      fetchStaticData();
+    });
+
+    return () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
+    };
+  }, [id]);
+
+  const handleStop = async () => {
+    setStopping(true);
+    try {
+      await fetch(`${API_BASE}/api/runs/${id}/stop`, { method: "POST" });
+      fetchStaticData();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setStopping(false);
+    }
+  };
+
+  // Group metrics calculations per provider
+  const getProviderAggregates = () => {
+    const stats: Record<string, {
+      name: string;
+      type: string;
+      total: number;
+      completed: number;
+      failed: number;
+      speeds: number[];
+      ttfts: number[];
+      latencies: number[];
+      qualityScores: number[];
+      jsonTotal: number;
+      jsonSuccess: number;
+      estimatedTokens: boolean;
+      errors: string[];
+    }> = {};
+
+    requests.forEach(r => {
+      const name = r.provider.name;
+      if (!stats[name]) {
+        stats[name] = {
+          name,
+          type: r.provider.type,
+          total: 0,
+          completed: 0,
+          failed: 0,
+          speeds: [],
+          ttfts: [],
+          latencies: [],
+          qualityScores: [],
+          jsonTotal: 0,
+          jsonSuccess: 0,
+          estimatedTokens: false,
+          errors: []
+        };
+      }
+
+      const pstat = stats[name];
+      pstat.total += 1;
+      
+      if (r.status === "SUCCESS") {
+        pstat.completed += 1;
+        if (r.token_count_source === "tokenizer" || r.token_count_source === "estimated") {
+          pstat.estimatedTokens = true;
+        }
+
+        // speed calculation
+        if (r.latency_ms && r.output_tokens > 0) {
+          const genTimeMs = r.ttft_ms ? (r.latency_ms - r.ttft_ms) : r.latency_ms;
+          const genSec = genTimeMs / 1000.0;
+          if (genSec > 0) {
+            pstat.speeds.append?.(r.output_tokens / genSec) || pstat.speeds.push(r.output_tokens / genSec);
+          }
+        }
+
+        if (r.ttft_ms) pstat.ttfts.push(r.ttft_ms);
+        if (r.latency_ms) pstat.latencies.push(r.latency_ms);
+
+        r.quality_results.forEach(q => {
+          pstat.qualityScores.push(q.score * 100.0);
+          if (q.evaluator_type === "json_schema") {
+            pstat.jsonTotal += 1;
+            if (q.passed) pstat.jsonSuccess += 1;
+          }
+        });
+      } else if (r.status === "FAILED") {
+        pstat.failed += 1;
+        if (r.error_message) pstat.errors.push(r.error_message);
+      }
+    });
+
+    return Object.values(stats);
+  };
+
+  const providerSummary = getProviderAggregates();
+  const isRunning = run?.status === "RUNNING" || run?.status === "PENDING";
+  const progressPct = run?.total_requests ? Math.round((run.completed_requests + run.failed_requests) / run.total_requests * 100) : 0;
+
+  // Chart data formatting
+  const getTelemetryData = () => {
+    return telemetry.map((t, idx) => ({
+      tick: idx,
+      cpu: t.cpu_utilization,
+      ram: (t.ram_used_bytes / t.ram_total_bytes) * 100.0,
+      gpu0: t.gpu_utilization?.[0]?.utilization || 0,
+      gpu1: t.gpu_utilization?.[1]?.utilization || 0
+    }));
+  };
+
+  return (
+    <div className="p-8 space-y-8 flex-1">
+      {/* Top Details Header */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <div className="flex items-center gap-3">
+            <span className={`px-2.5 py-0.5 rounded text-xs uppercase font-bold border ${
+              run?.status === "COMPLETED" ? "bg-emerald-950 text-emerald-400 border-emerald-800" :
+              isRunning ? "bg-cyan-950 text-cyan-400 border-cyan-800 animate-pulse" :
+              run?.status === "STOPPED" ? "bg-zinc-800 text-zinc-400 border-zinc-700" :
+              "bg-red-950 text-red-400 border-red-800"
+            }`}>
+              {run?.status}
+            </span>
+            <span className="text-zinc-500 text-xs font-mono">Run ID: {id}</span>
+          </div>
+          <h1 className="text-2xl font-bold mt-1 text-zinc-100">{run?.name}</h1>
+          <p className="text-sm text-zinc-400 mt-1 font-mono">
+            Model: {run?.config?.model?.name} | Concurrency: {run?.config?.concurrency} | Repetitions: {run?.config?.repetitions}
+          </p>
+        </div>
+
+        <div className="flex gap-3">
+          {isRunning && (
+            <button
+              onClick={handleStop}
+              disabled={stopping}
+              className="flex items-center gap-2 px-4 py-2 bg-red-650 hover:bg-red-500 text-zinc-950 font-bold rounded-lg text-sm transition-colors"
+            >
+              <Square className="h-4 w-4 fill-zinc-950" />
+              {stopping ? "Stopping..." : "Stop Execution"}
+            </button>
+          )}
+          <button
+            onClick={() => window.open(`${API_BASE}/api/runs/${id}/results`)}
+            className="flex items-center gap-2 px-3 py-1.5 border border-zinc-800 rounded-lg text-sm bg-zinc-900 text-zinc-300 hover:bg-zinc-800 transition-colors"
+          >
+            <Download className="h-4 w-4" />
+            Raw Data (JSON)
+          </button>
+        </div>
+      </div>
+
+      {/* Progress Bar (Overall) */}
+      {isRunning && (
+        <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-5 space-y-2">
+          <div className="flex justify-between items-center text-xs text-zinc-400 font-mono">
+            <span>Overall Progress</span>
+            <span>{progressPct}% ({run?.completed_requests + run?.failed_requests} / {run?.total_requests} requests)</span>
+          </div>
+          <div className="w-full bg-zinc-900 h-3 rounded-full overflow-hidden border border-zinc-850">
+            <div className="bg-cyan-500 h-full transition-all duration-300" style={{ width: `${progressPct}%` }} />
+          </div>
+        </div>
+      )}
+
+      {/* Runtime Performance Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {providerSummary.map((p) => {
+          const meanSpeed = p.speeds.length > 0 ? (p.speeds.reduce((a, b) => a + b, 0) / p.speeds.length) : 0;
+          const meanTtft = p.ttfts.length > 0 ? (p.ttfts.reduce((a, b) => a + b, 0) / p.ttfts.length) : null;
+          const meanQuality = p.qualityScores.length > 0 ? (p.qualityScores.reduce((a, b) => a + b, 0) / p.qualityScores.length) : 0;
+          const jsonRate = p.jsonTotal > 0 ? (p.jsonSuccess / p.jsonTotal * 100) : null;
+
+          return (
+            <div key={p.name} className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-5 space-y-4 flex flex-col justify-between">
+              <div className="space-y-3">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className="font-bold text-zinc-200">{p.name}</h3>
+                    <span className="text-[10px] bg-zinc-850 text-zinc-400 font-mono px-2 py-0.5 rounded uppercase mt-1 inline-block">
+                      {p.type}
+                    </span>
+                  </div>
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                    p.completed === p.total && p.total > 0 ? "bg-emerald-950 text-emerald-400 border border-emerald-800" :
+                    p.failed === p.total && p.total > 0 ? "bg-red-950 text-red-400 border border-red-800" :
+                    "bg-cyan-950 text-cyan-400 border border-cyan-800 animate-pulse"
+                  }`}>
+                    {p.completed === p.total ? "Done" : "Benchmarking"}
+                  </span>
+                </div>
+
+                {/* Primary Stats */}
+                <div className="grid grid-cols-2 gap-4 py-2 border-y border-zinc-850">
+                  <div>
+                    <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Serving Speed</div>
+                    <div className="text-xl font-bold font-mono text-emerald-400 mt-0.5">
+                      {meanSpeed > 0 ? `${meanSpeed.toFixed(1)} t/s` : "Pending"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">TTFT</div>
+                    <div className="text-xl font-bold font-mono text-amber-400 mt-0.5">
+                      {meanTtft ? `${meanTtft.toFixed(0)} ms` : "N/A"}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Second Row Quality & JSON */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <div className="text-[10px] text-zinc-500 font-bold uppercase">Eval Quality</div>
+                    <div className="text-sm font-semibold font-mono text-zinc-300 mt-0.5">
+                      {meanQuality > 0 ? `${meanQuality.toFixed(1)}%` : "N/A"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-zinc-500 font-bold uppercase">JSON schema</div>
+                    <div className="text-sm font-semibold font-mono text-zinc-300 mt-0.5">
+                      {jsonRate !== null ? `${jsonRate.toFixed(1)}%` : "N/A"}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Informative Limitations (Important for fair benchmark) */}
+              <div className="space-y-1.5 pt-3 border-t border-zinc-850/80">
+                {meanTtft === null && p.completed > 0 && (
+                  <div className="text-[10px] text-amber-500 flex items-center gap-1">
+                    <AlertTriangle className="h-3 w-3" />
+                    TTFT unavailable (Streaming not supported)
+                  </div>
+                )}
+                {p.estimatedTokens && (
+                  <div className="text-[10px] text-zinc-500">
+                    * Token count estimated with tokenizer.
+                  </div>
+                )}
+                {p.failed > 0 && (
+                  <div className="text-[10px] text-red-400 truncate">
+                    Error: {p.errors[0]}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Telemetry and Request Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* Dynamic Telemetry Chart */}
+        <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-6 space-y-4">
+          <h3 className="font-bold text-zinc-200">Hardware Telemetry</h3>
+          <div className="h-64">
+            {telemetry.length === 0 ? (
+              <div className="text-center text-zinc-650 text-xs py-24">No telemetry frames recorded yet.</div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={getTelemetryData()}>
+                  <XAxis dataKey="tick" stroke="#52525b" fontSize={10} tickLine={false} />
+                  <YAxis stroke="#52525b" fontSize={10} domain={[0, 100]} unit="%" tickLine={false} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: "#18181b", borderColor: "#27272a", borderRadius: "8px" }}
+                    labelClassName="text-zinc-500 text-xs"
+                  />
+                  <Legend verticalAlign="top" height={36} wrapperStyle={{ fontSize: "10px" }} />
+                  <Line type="monotone" dataKey="gpu0" stroke="#06b6d4" strokeWidth={1.5} name="GPU 0 Util %" dot={false} />
+                  <Line type="monotone" dataKey="cpu" stroke="#f59e0b" strokeWidth={1.5} name="CPU Util %" dot={false} />
+                  <Line type="monotone" dataKey="ram" stroke="#a755f7" strokeWidth={1.5} name="RAM %" dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+
+        {/* Latency Comparison Chart */}
+        <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-6 space-y-4">
+          <h3 className="font-bold text-zinc-200">Throughput vs Latency</h3>
+          <div className="h-64">
+            {requests.length === 0 ? (
+              <div className="text-center text-zinc-650 text-xs py-24">Awaiting completed request metrics...</div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={providerSummary}>
+                  <XAxis dataKey="name" stroke="#52525b" fontSize={10} tickLine={false} />
+                  <YAxis yAxisId="left" stroke="#52525b" fontSize={10} tickLine={false} unit=" t/s" />
+                  <YAxis yAxisId="right" orientation="right" stroke="#52525b" fontSize={10} tickLine={false} unit=" ms" />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: "#18181b", borderColor: "#27272a", borderRadius: "8px" }}
+                    labelClassName="text-zinc-500 text-xs"
+                  />
+                  <Legend verticalAlign="top" height={36} wrapperStyle={{ fontSize: "10px" }} />
+                  <Bar yAxisId="left" dataKey="speeds" fill="#10b981" name="Mean speed (tok/s)" />
+                  <Bar yAxisId="right" dataKey="latencies" fill="#3b82f6" name="Mean latency (ms)" />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Raw request-level logging */}
+      <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-6 space-y-4">
+        <h3 className="font-bold text-zinc-200">Request Logs</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm border-collapse">
+            <thead>
+              <tr className="text-zinc-400 border-b border-zinc-800 font-semibold text-xs">
+                <th className="py-2.5 px-4">Index</th>
+                <th className="py-2.5 px-4">Provider</th>
+                <th className="py-2.5 px-4">Status</th>
+                <th className="py-2.5 px-4">Latency (ms)</th>
+                <th className="py-2.5 px-4">TTFT</th>
+                <th className="py-2.5 px-4">Speed</th>
+                <th className="py-2.5 px-4">Prompt Tokens</th>
+                <th className="py-2.5 px-4">Output Tokens</th>
+                <th className="py-2.5 px-4">Quality Score</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-850 font-mono text-xs text-zinc-300">
+              {requests.map((r, idx) => {
+                const latency = r.latency_ms ? `${r.latency_ms.toFixed(0)} ms` : "N/A";
+                const ttft = r.ttft_ms ? `${r.ttft_ms.toFixed(0)} ms` : "N/A";
+                const speedVal = r.latency_ms && r.output_tokens > 0 ? (r.output_tokens / (r.latency_ms / 1000.0)) : 0;
+                const speed = speedVal > 0 ? `${speedVal.toFixed(1)} t/s` : "N/A";
+                const qScore = r.quality_results?.[0] ? `${(r.quality_results[0].score * 100).toFixed(0)}%` : "N/A";
+
+                return (
+                  <tr key={idx} className="hover:bg-zinc-900/40 transition-colors">
+                    <td className="py-2 px-4 text-zinc-500">{r.request_index}</td>
+                    <td className="py-2 px-4 font-sans font-semibold text-zinc-200">{r.provider.name}</td>
+                    <td className="py-2 px-4">
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                        r.status === "SUCCESS" ? "bg-emerald-950 text-emerald-400 border border-emerald-800" :
+                        r.status === "RUNNING" ? "bg-cyan-950 text-cyan-400 border border-cyan-800 animate-pulse" :
+                        "bg-red-950 text-red-400 border-red-800"
+                      }`}>
+                        {r.status}
+                      </span>
+                    </td>
+                    <td className="py-2 px-4">{latency}</td>
+                    <td className="py-2 px-4">{ttft}</td>
+                    <td className="py-2 px-4">{speed}</td>
+                    <td className="py-2 px-4 text-zinc-500">{r.prompt_tokens}</td>
+                    <td className="py-2 px-4 text-zinc-500">{r.output_tokens}</td>
+                    <td className="py-2 px-4 text-cyan-400">{qScore}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+

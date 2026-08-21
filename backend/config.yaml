@@ -1,0 +1,9 @@
+name: "CLI Mock Benchmark Comparison"
+model_name: "qwen2.5-7b-instruct"
+provider_ids: [1]
+prompt_suite_ids: [1]
+concurrency: 1
+repetitions: 2
+warmup_requests: 1
+temperature: 0.0
+max_tokens: 64

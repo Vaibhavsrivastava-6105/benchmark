@@ -1,0 +1,1 @@
+docker run --gpus all -v ~/.cache/huggingface:/root/.cache/huggingface --env "HUGGING_FACE_HUB_TOKEN=$env:HF_TOKEN" -p 8004:8000 --ipc=host vllm/vllm-openai:latest --model unsloth/Llama-3.2-1B --max-model-len 2048 --gpu-memory-utilization 0.7

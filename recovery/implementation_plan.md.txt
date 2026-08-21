@@ -1,0 +1,158 @@
+# Implementation Plan - LLM Benchmark Lab
+
+An enterprise-grade LLM inference benchmarking and observability platform for comparing runtimes (Ollama, vLLM, llama.cpp, Transformers) side-by-side on latency, throughput, hardware efficiency, structured JSON validation, and answer quality.
+
+---
+
+## Architecture Overview
+
+```mermaid
+graph TD
+    Client[Next.js Web UI / CLI] -->|REST API / SSE| API[FastAPI Server]
+    API -->|Read/Write| DB[(SQLite Database)]
+    API -->|Queue Jobs| Worker[Async Job Queue]
+    Worker -->|Execute Benchmarks| Engine[Benchmark Engine]
+    Engine -->|Query Telemetry| Telemetry[Hardware Telemetry Collector]
+    Engine -->|Run Requests| Providers[Provider Adapters]
+    Providers -->|Ollama API| Ollama[Ollama Server]
+    Providers -->|OpenAI SDK / HTTP| OpenAI[vLLM / llama.cpp / SGLang / OpenAI]
+    Providers -->|HuggingFace HF| HF[Transformers local execution]
+    Engine -->|Evaluate| Eval[Quality & JSON Evaluator]
+    Telemetry -->|Query| HW[psutil & pynvml]
+```
+
+---
+
+## User Review Required
+
+> [!IMPORTANT]
+> **Mock / Demo Mode**: To ensure the platform can be evaluated immediately without needing GPUs or installing runtimes locally, we will implement a fully functioning **Demo Mode** (`DEMO_MODE=true` in environment). It will simulate benchmark execution, stream real-time hardware telemetry, run evaluations, and generate reports. It is clearly labeled "DEMO DATA" in the UI.
+> **Transformers Inference**: Running Hugging Face Transformers directly inside the backend python process can block or load massive weights. We will implement a lightweight mock/sub-process approach for Transformers or use small local models (e.g. Qwen2.5-0.5B) using Hugging Face pipelines, with safe error handling if model weights are not loaded.
+
+---
+
+## Open Questions
+
+*No open questions at this stage. The requirements are fully specified.*
+
+---
+
+## Proposed Changes
+
+### Backend Setup (Python / FastAPI / SQLite)
+
+We will set up the backend in `c:/Users/vaibh/OneDrive/Desktop/llm/backend/`.
+
+#### [NEW] [`backend/app/database.py`](file:///c:/Users/vaibh/OneDrive/Desktop/llm/backend/app/database.py)
+Provides the SQLAlchemy session management, connection arguments for SQLite concurrency, and model Base.
+
+#### [NEW] [`backend/app/models.py`](file:///c:/Users/vaibh/OneDrive/Desktop/llm/backend/app/models.py)
+Contains the SQLAlchemy models:
+- `Provider`: Config details for runtimes (Ollama, vLLM, llama.cpp, etc.)
+- `Model`: Models registered for benchmarking.
+- `PromptSuite` & `Prompt`: Built-in and user-defined test prompt suites.
+- `BenchmarkConfig`: Configuration template for benchmark runs (temperature, concurrency, repetitions).
+- `BenchmarkRun`: Details of individual benchmarking experiments.
+- `BenchmarkRequest`: Log of each individual request, TTFT, token counts, and latency.
+- `TelemetrySample`: Hardware utilization samples gathered during the run.
+- `QualityResult`: Results of parsing, regex evaluation, or LLM-judge grading.
+- `Report`: Final summary metrics and recommendation profiles.
+
+#### [NEW] [`backend/app/schemas.py`](file:///c:/Users/vaibh/OneDrive/Desktop/llm/backend/app/schemas.py)
+Pydantic schemas for request/response validation.
+
+#### [NEW] [`backend/app/providers/base.py`](file:///c:/Users/vaibh/OneDrive/Desktop/llm/backend/app/providers/base.py)
+Base class `InferenceProvider` detailing the standard interface:
+- `health_check(self) -> bool`
+- `get_models(self) -> list[str]`
+- `generate(self, prompt: str, system_prompt: str, options: dict) -> dict`
+- `generate_stream(self, prompt: str, system_prompt: str, options: dict) -> AsyncIterator[dict]`
+
+#### [NEW] [`backend/app/providers/ollama.py`](file:///c:/Users/vaibh/OneDrive/Desktop/llm/backend/app/providers/ollama.py)
+Ollama-specific adapter. Translates configuration and parses response streams to compute true TTFT.
+
+#### [NEW] [`backend/app/providers/openai_compatible.py`](file:///c:/Users/vaibh/OneDrive/Desktop/llm/backend/app/providers/openai_compatible.py)
+OpenAI-compatible server adapter sharing logic for **vLLM**, **llama-server (llama.cpp)**, and **SGLang**. Parses chunk streams to record first-token latency (TTFT).
+
+#### [NEW] [`backend/app/providers/transformers.py`](file:///c:/Users/vaibh/OneDrive/Desktop/llm/backend/app/providers/transformers.py)
+Adapter for local Hugging Face Transformers models. Spawns an isolated subprocess or loads locally if resources allow, with graceful fallbacks.
+
+#### [NEW] [`backend/app/providers/mock.py`](file:///c:/Users/vaibh/OneDrive/Desktop/llm/backend/app/providers/mock.py)
+Mock provider that simulates various runtimes with realistic latencies, tokens/sec, and structured outputs for demo/test purposes.
+
+#### [NEW] [`backend/app/providers/registry.py`](file:///c:/Users/vaibh/OneDrive/Desktop/llm/backend/app/providers/registry.py)
+Dynamic registry loading provider configs and resolving provider clients.
+
+#### [NEW] [`backend/app/engine/telemetry.py`](file:///c:/Users/vaibh/OneDrive/Desktop/llm/backend/app/engine/telemetry.py)
+Continuous background hardware telemetry. Monitors CPU, RAM (`psutil`), and GPU utilizing `pynvml` (with safe fallback when not installed/active).
+
+#### [NEW] [`backend/app/engine/evaluator.py`](file:///c:/Users/vaibh/OneDrive/Desktop/llm/backend/app/engine/evaluator.py)
+Evaluation engine for validating:
+- Exact matches and containing values
+- Regex matching
+- JSON schema validation
+- LLM Judge API configurations
+
+#### [NEW] [`backend/app/engine/runner.py`](file:///c:/Users/vaibh/OneDrive/Desktop/llm/backend/app/engine/runner.py)
+Benchmark executor. Orchestrates concurrency using async task groups, implements warm-ups, handles repetitions, measures precise nanosecond durations, and calculates throughput/TTFT.
+
+#### [NEW] [`backend/app/engine/recommendation.py`](file:///c:/Users/vaibh/OneDrive/Desktop/llm/backend/app/engine/recommendation.py)
+Recommendation engine. Employs multi-criteria decision analysis based on weights (quality, latency, throughput, operational complexity, efficiency) to recommend configurations.
+
+#### [NEW] [`backend/app/engine/worker.py`](file:///c:/Users/vaibh/OneDrive/Desktop/llm/backend/app/engine/worker.py)
+Asynchronous task manager. Subscribes to new benchmark jobs and updates runs. Distributes live events via Server-Sent Events (SSE) / WebSockets.
+
+#### [NEW] [`backend/app/main.py`](file:///c:/Users/vaibh/OneDrive/Desktop/llm/backend/app/main.py)
+FastAPI application routes and Server-Sent Events (SSE) manager.
+
+#### [NEW] [`backend/app/cli.py`](file:///c:/Users/vaibh/OneDrive/Desktop/llm/backend/app/cli.py)
+Command line interface with commands: `run`, `list-runs`, `compare`, `export`, `providers`, and `hardware`.
+
+---
+
+### Frontend Setup (Next.js / TypeScript / Tailwind CSS)
+
+We will initialize the frontend in `c:/Users/vaibh/OneDrive/Desktop/llm/frontend/`.
+
+#### [NEW] [`frontend/src/app/layout.tsx`](file:///c:/Users/vaibh/OneDrive/Desktop/llm/frontend/src/app/layout.tsx)
+Base layout with dark-first theme styling, global layout wrapper, and Google Font integration (Inter).
+
+#### [NEW] [`frontend/src/app/page.tsx`](file:///c:/Users/vaibh/OneDrive/Desktop/llm/frontend/src/app/page.tsx)
+Dashboard displaying global stats, active run tracking, and aggregate charts (latency, throughput, resource utilization).
+
+#### [NEW] [`frontend/src/app/benchmarks/new/page.tsx`](file:///c:/Users/vaibh/OneDrive/Desktop/llm/frontend/src/app/benchmarks/new/page.tsx)
+Multi-step wizard for configuring benchmark targets (Models, Providers, Settings, Prompts, Concurrency).
+
+#### [NEW] [`frontend/src/app/benchmarks/[id]/page.tsx`](file:///c:/Users/vaibh/OneDrive/Desktop/llm/frontend/src/app/benchmarks/%5Bid%5D/page.tsx)
+Live and historical benchmark dashboard page. Pulls real-time events from the SSE backend, shows live progress charts, telemetry curves, and runtime comparison cards.
+
+#### [NEW] [`frontend/src/app/compare/page.tsx`](file:///c:/Users/vaibh/OneDrive/Desktop/llm/frontend/src/app/compare/page.tsx)
+Detailed comparison layout showing side-by-side run evaluations, "Why did this win?" summaries, and custom weight configuration for production vs local scores.
+
+#### [NEW] [`frontend/src/app/providers/page.tsx`](file:///c:/Users/vaibh/OneDrive/Desktop/llm/frontend/src/app/providers/page.tsx)
+Runtimes management page for registering, testing connections, and checking health of Ollama, vLLM, and llama.cpp.
+
+---
+
+## Verification Plan
+
+### Automated Tests
+We will add standard unit and integration tests inside `backend/tests/`.
+- Test provider connectivity mocks
+- Test benchmark runner concurrency loop
+- Test token metrics calculations
+- Test evaluator schemas
+
+Run via:
+```bash
+pytest backend/tests/
+```
+
+### Manual Verification
+1. Run backend using `python -m app.main` or via CLI.
+2. Spin up frontend and view the UI.
+3. Switch on `DEMO_MODE=true` to execute full workflow mock benchmarks.
+4. Verify SSE telemetry charts updating smoothly.
+5. Export results to CSV/JSON and download.
+6. Verify CLI commands.
+
