@@ -10,6 +10,8 @@ from app.database import engine, Base, get_db
 from app import models, schemas, crud
 from app.engine.worker import run_executor_worker, queue_run, stop_run, broadcaster
 from app.engine.telemetry import TelemetryCollector
+import time
+from app.engine.telemetry import TelemetryCollector
 from app.engine.recommendation import RecommendationEngine, OBJECTIVE_PROFILES
 from app.providers.registry import get_provider_client
 
@@ -38,16 +40,16 @@ async def run_continuous_telemetry():
     """Background task to continuously poll hardware and store in global DB"""
     while True:
         try:
-            stat = hardware_monitor.get_current_stats()
+            stat = TelemetryCollector.collect_all()
             db = next(get_db())
             
             # insert
             metric = models.SystemMetrics(
                 timestamp=int(time.time() * 1_000_000),
-                cpu_utilization=stat.cpu_utilization,
-                ram_used_bytes=stat.ram_used_bytes,
-                ram_total_bytes=stat.ram_total_bytes,
-                gpu_utilization=[g.dict() for g in stat.gpus]
+                cpu_utilization=stat["cpu_utilization"],
+                ram_used_bytes=stat["ram_used_bytes"],
+                ram_total_bytes=stat["ram_total_bytes"],
+                gpu_utilization=stat["gpu_utilization"]
             )
             db.add(metric)
             
