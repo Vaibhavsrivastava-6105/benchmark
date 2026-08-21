@@ -29,7 +29,7 @@ import {
 
 const API_BASE = "";
 
-const ProviderCard = ({ provider, toggleProvider }: { provider: any, toggleProvider: any }) => {
+const ProviderCard = ({ provider }: { provider: any }) => {
   const [ping, setPing] = useState<number | null>(null);
 
   useEffect(() => {
@@ -281,7 +281,7 @@ export default function Dashboard() {
       {/* Live Engines & Hardware Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
         {providers.filter(p => ["Local llama.cpp (Auto-Setup)", "Local Hugging Face Transformers", "Local vLLM (Auto-Setup)", "Local Ollama"].includes(p.name)).map(provider => (
-            <ProviderCard key={provider.id} provider={provider} toggleProvider={toggleProvider} />
+            <ProviderCard key={provider.id} provider={provider} />
           ))}
       </div>
 
