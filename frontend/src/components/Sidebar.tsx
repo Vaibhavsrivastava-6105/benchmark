@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Play, List, Database, Cpu, Settings, Activity } from "lucide-react";
+import { LayoutDashboard, Play, List, Database, Cpu, Settings, Activity, Terminal, ScrollText } from "lucide-react";
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -12,7 +12,9 @@ export default function Sidebar() {
     { href: "/compare", label: "Compare", icon: List },
     { href: "/models", label: "Models", icon: Database },
     { href: "/providers", label: "Providers", icon: Settings },
-    { href: "/hardware", label: "Hardware", icon: Cpu }
+    { href: "/hardware", label: "Hardware", icon: Cpu },
+    { href: "/requests", label: "Global Requests", icon: ScrollText },
+    { href: "/logs", label: "System Logs", icon: Terminal }
   ];
 
   return (

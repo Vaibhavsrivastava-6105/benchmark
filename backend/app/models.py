@@ -188,3 +188,22 @@ class Report(Base):
 
     # Relationships
     run = relationship("BenchmarkRun", back_populates="reports")
+
+
+class SystemMetrics(Base):
+    __tablename__ = "system_metrics"
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(BigInteger, nullable=False, index=True)
+    cpu_utilization = Column(Float, nullable=False)
+    ram_used_bytes = Column(BigInteger, nullable=False)
+    ram_total_bytes = Column(BigInteger, nullable=False)
+    gpu_utilization = Column(JSON, nullable=True)
+
+class SystemEventLog(Base):
+    __tablename__ = "system_event_logs"
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(BigInteger, nullable=False, index=True)
+    level = Column(String, nullable=False) # INFO, WARNING, ERROR
+    source = Column(String, nullable=False) # e.g. "engine", "provider_sync", "hardware_monitor"
+    message = Column(Text, nullable=False)
+    details = Column(JSON, nullable=True)

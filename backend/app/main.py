@@ -31,6 +31,36 @@ app.add_middleware(
 
 # Background tasks lifecycle
 worker_task = None
+telemetry_task = None
+
+
+async def run_continuous_telemetry():
+    """Background task to continuously poll hardware and store in global DB"""
+    while True:
+        try:
+            stat = hardware_monitor.get_current_stats()
+            db = next(get_db())
+            
+            # insert
+            metric = models.SystemMetrics(
+                timestamp=int(time.time() * 1_000_000),
+                cpu_utilization=stat.cpu_utilization,
+                ram_used_bytes=stat.ram_used_bytes,
+                ram_total_bytes=stat.ram_total_bytes,
+                gpu_utilization=[g.dict() for g in stat.gpus]
+            )
+            db.add(metric)
+            
+            # purge older than 7 days
+            seven_days_ago = int((time.time() - 7*24*60*60) * 1_000_000)
+            db.query(models.SystemMetrics).filter(models.SystemMetrics.timestamp < seven_days_ago).delete()
+            
+            db.commit()
+            db.close()
+        except Exception as e:
+            print(f"Telemetry daemon error: {e}")
+        await asyncio.sleep(5.0)
+
 
 @app.on_event("startup")
 def startup_event():
@@ -47,11 +77,15 @@ def startup_event():
         
     # Start background executor loop
     worker_task = asyncio.create_task(run_executor_worker())
+    global telemetry_task
+    telemetry_task = asyncio.create_task(run_continuous_telemetry())
 
 @app.on_event("shutdown")
 def shutdown_event():
     if worker_task:
         worker_task.cancel()
+    if telemetry_task:
+        telemetry_task.cancel()
 
 # --- PROVIDERS API ---
 @app.get("/api/providers", response_model=List[schemas.ProviderResponse])
@@ -457,3 +491,77 @@ async def get_live_events_stream():
             broadcaster.unsubscribe(q)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@app.get("/api/telemetry/history")
+def get_telemetry_history(range_min: int = 60, db: Session = Depends(get_db)):
+    # range_min is minutes (e.g. 15, 60, 1440=24h, 10080=7d)
+    threshold = int((time.time() - range_min * 60) * 1_000_000)
+    
+    # We don't want to send 100,000 records if they select 7 days.
+    # Downsample if needed, but for now just pull and let DB filter
+    metrics = db.query(models.SystemMetrics).filter(models.SystemMetrics.timestamp >= threshold).order_by(models.SystemMetrics.timestamp.asc()).all()
+    
+    # If there are > 500 records, we can downsample them linearly
+    res = []
+    step = max(1, len(metrics) // 200) # max 200 data points for UI graph
+    
+    for i in range(0, len(metrics), step):
+        m = metrics[i]
+        res.append({
+            "timestamp": m.timestamp,
+            "cpu_utilization": m.cpu_utilization,
+            "ram_used_bytes": m.ram_used_bytes,
+            "ram_total_bytes": m.ram_total_bytes,
+            "gpu_utilization": m.gpu_utilization
+        })
+        
+    return res
+
+
+
+@app.get("/api/requests")
+def get_global_requests(limit: int = 100, offset: int = 0, db: Session = Depends(get_db)):
+    reqs = db.query(models.BenchmarkRequest).order_by(models.BenchmarkRequest.created_at.desc()).offset(offset).limit(limit).all()
+    
+    res = []
+    for r in reqs:
+        # Avoid huge response text in list view
+        res.append({
+            "id": r.id,
+            "run_id": r.run_id,
+            "run_name": r.run.name if r.run else "Unknown",
+            "provider_name": r.provider.name if r.provider else "Unknown",
+            "model_name": r.model_name,
+            "status": r.status,
+            "prompt_tokens": r.prompt_tokens,
+            "output_tokens": r.output_tokens,
+            "total_tokens": r.total_tokens,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "start_time": r.start_time,
+            "finish_time": r.finish_time,
+            "latency_ms": ((r.finish_time - r.start_time) / 1000) if r.finish_time and r.start_time else None
+        })
+    return res
+
+@app.get("/api/requests/{req_id}")
+def get_global_request_detail(req_id: int, db: Session = Depends(get_db)):
+    r = db.query(models.BenchmarkRequest).filter(models.BenchmarkRequest.id == req_id).first()
+    if not r: raise HTTPException(status_code=404)
+    return {
+        "id": r.id,
+        "run_name": r.run.name if r.run else "Unknown",
+        "provider_name": r.provider.name if r.provider else "Unknown",
+        "model_name": r.model_name,
+        "status": r.status,
+        "response_text": r.response_text,
+        "error_message": r.error_message,
+        "prompt_text": r.prompt.prompt if r.prompt else None,
+        "system_prompt": r.prompt.system_prompt if r.prompt else None
+    }
+
+
+@app.get("/api/logs")
+def get_system_logs(limit: int = 200, db: Session = Depends(get_db)):
+    logs = db.query(models.SystemEventLog).order_by(models.SystemEventLog.timestamp.desc()).limit(limit).all()
+    return [{"id": l.id, "timestamp": l.timestamp, "level": l.level, "source": l.source, "message": l.message} for l in logs]
