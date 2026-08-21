@@ -49,6 +49,7 @@ interface Run {
 export default function Dashboard() {
   const router = useRouter();
   const [runs, setRuns] = useState<Run[]>([]);
+  const [providers, setProviders] = useState<any[]>([]);
   const [activeRun, setActiveRun] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [systemStats, setSystemStats] = useState<any>(null);
@@ -73,6 +74,11 @@ export default function Dashboard() {
       }
 
       // Fetch static system info
+      
+      const provRes = await fetch(`${API_BASE}/api/providers`);
+      const provData = await provRes.json();
+      setProviders(provData);
+
       const sysRes = await fetch(`${API_BASE}/api/hardware`);
       const sysData = await sysRes.json();
       setSystemStats(sysData);
@@ -212,7 +218,69 @@ export default function Dashboard() {
         </div>
       )}
 
+      
+      {/* Live Engines & Hardware Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+        {providers.filter(p => ["vllm", "ollama", "transformers", "llamacpp"].includes(p.type)).map(provider => {
+          
+          const isOnline = provider.status === "ONLINE";
+          const sysLive = systemStats?.live || {};
+          const cpu = sysLive.cpu_utilization || 0;
+          const gpuObj = sysLive.gpu_utilization && sysLive.gpu_utilization.length > 0 ? sysLive.gpu_utilization[0] : null;
+          const gpuUtil = gpuObj?.utilization || 0;
+          const vramUsed = gpuObj ? (gpuObj.vram_used / (1024 ** 3)).toFixed(1) : "0";
+          const vramTotal = gpuObj ? (gpuObj.vram_total / (1024 ** 3)).toFixed(1) : "0";
+
+          return (
+            <div key={provider.id} className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-4 flex flex-col justify-between hover:border-zinc-700 transition-colors">
+              <div className="flex justify-between items-center mb-3">
+                <span className="font-bold text-sm text-white truncate pr-2">{provider.name}</span>
+                <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold border ${isOnline ? "bg-emerald-950 text-emerald-400 border-emerald-800" : "bg-zinc-900 text-zinc-500 border-zinc-800"}`}>
+                  {provider.status || "OFFLINE"}
+                </span>
+              </div>
+              
+              <div className="space-y-3">
+                {/* CPU */}
+                <div>
+                  <div className="flex justify-between text-xs text-zinc-400 mb-1">
+                    <span>System CPU</span>
+                    <span className="font-mono">{cpu}%</span>
+                  </div>
+                  <div className="w-full bg-zinc-900 h-1.5 rounded-full overflow-hidden">
+                    <div className="bg-fuchsia-500 h-full transition-all" style={{width: `${cpu}%`}}></div>
+                  </div>
+                </div>
+
+                {/* GPU */}
+                <div>
+                  <div className="flex justify-between text-xs text-zinc-400 mb-1">
+                    <span>GPU Core</span>
+                    <span className="font-mono">{gpuUtil}%</span>
+                  </div>
+                  <div className="w-full bg-zinc-900 h-1.5 rounded-full overflow-hidden">
+                    <div className="bg-cyan-500 h-full transition-all" style={{width: `${gpuUtil}%`}}></div>
+                  </div>
+                </div>
+
+                {/* VRAM */}
+                <div>
+                  <div className="flex justify-between text-xs text-zinc-400 mb-1">
+                    <span>GPU VRAM</span>
+                    <span className="font-mono">{vramUsed} / {vramTotal} GB</span>
+                  </div>
+                  <div className="w-full bg-zinc-900 h-1.5 rounded-full overflow-hidden">
+                    <div className="bg-emerald-500 h-full transition-all" style={{width: `${gpuObj ? (gpuObj.vram_used / gpuObj.vram_total)*100 : 0}%`}}></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
       {/* Summary Cards */}
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {/* Active Run Status */}
         <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-5 space-y-2">
