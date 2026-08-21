@@ -143,7 +143,24 @@ async def test_provider_health(id: int, db: Session = Depends(get_db)):
 def start_prov_action(id: int, db: Session = Depends(get_db)):
     prov = db.query(models.Provider).filter(models.Provider.id == id).first()
     if prov:
-        start_provider(prov.type)
+        if prov.type == "transformers":
+            prov.last_status = "ONLINE"
+            db.commit()
+        else:
+            start_provider(prov.type)
+    return {"status": "ok"}
+
+@app.post("/api/providers/{id}/stop")
+def stop_prov_action(id: int, db: Session = Depends(get_db)):
+    prov = db.query(models.Provider).filter(models.Provider.id == id).first()
+    if prov:
+        if prov.type == "transformers":
+            prov.last_status = "OFFLINE"
+            db.commit()
+        elif prov.base_url:
+            parsed = urllib.parse.urlparse(prov.base_url)
+            if parsed.port:
+                stop_provider(parsed.port)
     return {"status": "ok"}
 
 @app.post("/api/providers/{id}/stop")

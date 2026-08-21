@@ -25,11 +25,16 @@ def get_process_telemetry(port: int) -> Dict[str, Any]:
 def start_provider(provider_type: str):
     if provider_type == "openai_compatible":
         # Hacky assumption for Ollama
-        subprocess.Popen(["ollama", "serve"], creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+        subprocess.Popen("ollama serve", shell=True, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
     elif provider_type == "llamacpp":
         cwd = os.path.abspath("bin/llama-cpp")
-        subprocess.Popen(["llama-server.exe", "-m", "model.gguf", "--port", "8080", "--host", "127.0.0.1"], 
+        exe = os.path.join(cwd, "llama-server.exe")
+        subprocess.Popen([exe, "-m", "model.gguf", "--port", "8080", "--host", "127.0.0.1"], 
                          cwd=cwd, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+    elif provider_type == "vllm":
+        # Cannot natively run vLLM on Windows, mock it if needed or print warning
+        pass
+
 
 def stop_provider(port: int):
     pid = get_pid_by_port(port)
