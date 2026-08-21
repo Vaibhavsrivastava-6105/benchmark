@@ -96,7 +96,7 @@ class OpenAICompatibleProvider(InferenceProvider):
         }
 
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=300.0) as client:
                 url = self._get_url("chat/completions")
                 response = await client.post(
                     url,
@@ -172,7 +172,7 @@ class OpenAICompatibleProvider(InferenceProvider):
         token_count_source = "estimated"
 
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=300.0) as client:
                 url = self._get_url("chat/completions")
                 async with client.stream("POST", url, json=req_body, headers=self._get_headers()) as response:
                     if response.status_code != 200:

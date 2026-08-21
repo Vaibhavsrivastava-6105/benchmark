@@ -185,6 +185,7 @@ class BenchmarkRunner:
                     output_tokens = 0
                     token_count_source = "unknown"
                     error = None
+                    finish_time = None
                     
                     # Override options based on benchmark mode
                     mode_prompt = prompt.prompt
@@ -208,24 +209,33 @@ class BenchmarkRunner:
                     elif benchmark_mode == "llm_judge":
                         evaluator_type = "llm_judge"
 
-                    async for chunk in client.generate_stream(model_name, mode_prompt, mode_sys, gen_options):
-                        if self.stop_requested:
-                            break
-                        if "error" in chunk:
-                            error = chunk["error"]
-                            break
-                        
-                        if chunk.get("is_first"):
-                            ttft_ms = chunk.get("ttft_ms")
-                            first_token_time = chunk.get("first_token_time")
-                            self.trigger_event("first_token", {"request_index": idx, "ttft_ms": ttft_ms})
-                        
-                        if chunk.get("is_done"):
-                            text = chunk.get("text", "")
-                            prompt_tokens = chunk.get("prompt_tokens", 0)
-                            output_tokens = chunk.get("output_tokens", 0)
-                            token_count_source = chunk.get("token_count_source", "estimated")
-                            finish_time = chunk.get("finish_time")
+                    async def process_stream():
+                        nonlocal error, ttft_ms, first_token_time, text, prompt_tokens, output_tokens, token_count_source, finish_time
+                        async for chunk in client.generate_stream(model_name, mode_prompt, mode_sys, gen_options):
+                            if self.stop_requested:
+                                break
+                            if "error" in chunk:
+                                error = chunk["error"]
+                                break
+                            
+                            if chunk.get("is_first"):
+                                ttft_ms = chunk.get("ttft_ms")
+                                first_token_time = chunk.get("first_token_time")
+                                self.trigger_event("first_token", {"request_index": idx, "ttft_ms": ttft_ms})
+                            
+                            if chunk.get("is_done"):
+                                text = chunk.get("text", "")
+                                prompt_tokens = chunk.get("prompt_tokens", 0)
+                                output_tokens = chunk.get("output_tokens", 0)
+                                token_count_source = chunk.get("token_count_source", "estimated")
+                                finish_time = chunk.get("finish_time")
+                                
+                    try:
+                        # 300 second absolute timeout per prompt
+                        await asyncio.wait_for(process_stream(), timeout=300.0)
+                    except asyncio.TimeoutError:
+                        error = "Request timed out after 300 seconds."
+
                             
                     if error:
                         raise Exception(error)
