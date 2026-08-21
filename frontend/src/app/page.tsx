@@ -70,9 +70,7 @@ const ProviderCard = ({ provider, toggleProvider }: { provider: any, toggleProvi
           <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold border ${isOnline ? "bg-emerald-950 text-emerald-400 border-emerald-800" : "bg-zinc-900 text-zinc-500 border-zinc-800"}`}>
             {isOnline ? "ONLINE" : "OFFLINE"}
           </span>
-          <button onClick={() => toggleProvider(provider)} className="p-1.5 hover:bg-zinc-800 rounded text-zinc-400 hover:text-white transition">
-              <Power className={`h-4 w-4 ${isOnline ? 'text-red-400' : 'text-emerald-400'}`} />
-            </button>
+          
         </div>
       </div>
       
@@ -119,16 +117,6 @@ export default function Dashboard() {
   const [liveTelemetry, setLiveTelemetry] = useState<any[]>([]);
 
   // Load basic data
-  const toggleProvider = async (provider: any) => {
-    const isOnline = provider.process_telemetry?.online || provider.last_status === "ONLINE";
-    const action = isOnline ? "stop" : "start";
-    try {
-      await fetch(`${API_BASE}/api/providers/${provider.id}/${action}`, { method: "POST" });
-      fetchData(); // refresh
-    } catch(e) {
-      console.error(e);
-    }
-  };
 
   const fetchData = async () => {
     try {
