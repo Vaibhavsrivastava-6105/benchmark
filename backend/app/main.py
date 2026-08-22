@@ -518,10 +518,13 @@ def compare_runs(comparison: schemas.ComparisonRequest, db: Session = Depends(ge
                     "ttft_ms": val["ttft_ms"]
                 })
 
+    use_case_recs = RecommendationEngine.compute_use_case_recommendations(metrics_summary, flat_requests)
+
     return {
         "metrics": list(metrics_summary.values()),
         "rankings": rankings_by_objective,
         "why_win_summary": why_win_summary,
+        "use_case_recommendations": use_case_recs,
         "runs_metrics": runs_metrics
     }
 

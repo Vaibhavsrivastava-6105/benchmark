@@ -11,7 +11,14 @@ import {
   Gauge,
   Clock,
   Layers,
-  ShieldCheck
+  ShieldCheck,
+  Brain,
+  Braces,
+  Code2,
+  Zap,
+  TrendingUp,
+  Sparkles,
+  Scale
 } from "lucide-react";
 
 const API_BASE = "";
@@ -253,16 +260,152 @@ export default function ComparePage() {
           {/* Main Scoring Matrix (Left 2 cols) */}
           <div className="lg:col-span-2 space-y-2">
             
-            {/* Recommendations Verdict */}
+            {/* Recommendations Verdict & Use-Case Badges */}
             {comparisonResults && (
-              <div className="bg-zinc-900 border border-zinc-500 rounded-xl p-2 space-y-3">
-                <div className="flex items-center gap-2 text-zinc-100 font-bold text-xs uppercase tracking-widest">
-                  <Award className="h-4.5 w-4.5" />
-                  Winner Verdict (Balanced Profile)
+              <div className="space-y-2">
+                <div className="bg-zinc-900/80 border border-zinc-700 rounded-xl p-3 space-y-2 backdrop-blur-md">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-amber-400 font-bold text-xs uppercase tracking-wider">
+                      <Award className="h-4 w-4" />
+                      Composite Winner Verdict
+                    </div>
+                    <span className="text-[10px] text-zinc-500 font-mono">Dynamic Weighted Scoring</span>
+                  </div>
+                  <p className="text-xs leading-relaxed text-zinc-300">
+                    {comparisonResults.why_win_summary || "Computing metrics summary..."}
+                  </p>
                 </div>
-                <p className="text-sm leading-relaxed text-zinc-400">
-                  {comparisonResults.why_win_summary || "Computing metrics summary..."}
-                </p>
+
+                {/* Pareto & Specialized Use-Case Recommendations */}
+                {comparisonResults.use_case_recommendations && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                    {/* Reasoning */}
+                    {comparisonResults.use_case_recommendations.best_reasoning && (
+                      <div className="bg-[#0c0c0e] border border-blue-500/30 rounded-lg p-2.5 space-y-1.5 relative overflow-hidden group hover:border-blue-500/60 transition-all">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] uppercase font-bold text-blue-400 flex items-center gap-1.5">
+                            <Brain className="w-3.5 h-3.5" />
+                            Reasoning
+                          </span>
+                          <span className="text-[9px] bg-blue-500/10 text-blue-300 border border-blue-500/20 px-1.5 py-0.5 rounded font-mono">
+                            {comparisonResults.use_case_recommendations.best_reasoning.key_metric}
+                          </span>
+                        </div>
+                        <div className="font-semibold text-xs text-white truncate">
+                          {comparisonResults.use_case_recommendations.best_reasoning.provider_name}
+                        </div>
+                        <p className="text-[10px] text-zinc-400 line-clamp-2 leading-tight">
+                          {comparisonResults.use_case_recommendations.best_reasoning.reasoning}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Structured Extraction */}
+                    {comparisonResults.use_case_recommendations.best_structured && (
+                      <div className="bg-[#0c0c0e] border border-purple-500/30 rounded-lg p-2.5 space-y-1.5 relative overflow-hidden group hover:border-purple-500/60 transition-all">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] uppercase font-bold text-purple-400 flex items-center gap-1.5">
+                            <Braces className="w-3.5 h-3.5" />
+                            Structured JSON
+                          </span>
+                          <span className="text-[9px] bg-purple-500/10 text-purple-300 border border-purple-500/20 px-1.5 py-0.5 rounded font-mono">
+                            {comparisonResults.use_case_recommendations.best_structured.key_metric}
+                          </span>
+                        </div>
+                        <div className="font-semibold text-xs text-white truncate">
+                          {comparisonResults.use_case_recommendations.best_structured.provider_name}
+                        </div>
+                        <p className="text-[10px] text-zinc-400 line-clamp-2 leading-tight">
+                          {comparisonResults.use_case_recommendations.best_structured.reasoning}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Coding */}
+                    {comparisonResults.use_case_recommendations.best_coding && (
+                      <div className="bg-[#0c0c0e] border border-emerald-500/30 rounded-lg p-2.5 space-y-1.5 relative overflow-hidden group hover:border-emerald-500/60 transition-all">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] uppercase font-bold text-emerald-400 flex items-center gap-1.5">
+                            <Code2 className="w-3.5 h-3.5" />
+                            Code Generation
+                          </span>
+                          <span className="text-[9px] bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 px-1.5 py-0.5 rounded font-mono">
+                            {comparisonResults.use_case_recommendations.best_coding.key_metric}
+                          </span>
+                        </div>
+                        <div className="font-semibold text-xs text-white truncate">
+                          {comparisonResults.use_case_recommendations.best_coding.provider_name}
+                        </div>
+                        <p className="text-[10px] text-zinc-400 line-clamp-2 leading-tight">
+                          {comparisonResults.use_case_recommendations.best_coding.reasoning}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Fastest */}
+                    {comparisonResults.use_case_recommendations.fastest && (
+                      <div className="bg-[#0c0c0e] border border-amber-500/30 rounded-lg p-2.5 space-y-1.5 relative overflow-hidden group hover:border-amber-500/60 transition-all">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] uppercase font-bold text-amber-400 flex items-center gap-1.5">
+                            <Zap className="w-3.5 h-3.5" />
+                            Fastest Speed
+                          </span>
+                          <span className="text-[9px] bg-amber-500/10 text-amber-300 border border-amber-500/20 px-1.5 py-0.5 rounded font-mono">
+                            {comparisonResults.use_case_recommendations.fastest.key_metric}
+                          </span>
+                        </div>
+                        <div className="font-semibold text-xs text-white truncate">
+                          {comparisonResults.use_case_recommendations.fastest.provider_name}
+                        </div>
+                        <p className="text-[10px] text-zinc-400 line-clamp-2 leading-tight">
+                          {comparisonResults.use_case_recommendations.fastest.reasoning}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Reliability */}
+                    {comparisonResults.use_case_recommendations.most_reliable && (
+                      <div className="bg-[#0c0c0e] border border-cyan-500/30 rounded-lg p-2.5 space-y-1.5 relative overflow-hidden group hover:border-cyan-500/60 transition-all">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] uppercase font-bold text-cyan-400 flex items-center gap-1.5">
+                            <ShieldCheck className="w-3.5 h-3.5" />
+                            Most Reliable
+                          </span>
+                          <span className="text-[9px] bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 px-1.5 py-0.5 rounded font-mono">
+                            {comparisonResults.use_case_recommendations.most_reliable.key_metric}
+                          </span>
+                        </div>
+                        <div className="font-semibold text-xs text-white truncate">
+                          {comparisonResults.use_case_recommendations.most_reliable.provider_name}
+                        </div>
+                        <p className="text-[10px] text-zinc-400 line-clamp-2 leading-tight">
+                          {comparisonResults.use_case_recommendations.most_reliable.reasoning}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Pareto Optimal */}
+                    {comparisonResults.use_case_recommendations.best_quality_cost_ratio && (
+                      <div className="bg-[#0c0c0e] border border-rose-500/30 rounded-lg p-2.5 space-y-1.5 relative overflow-hidden group hover:border-rose-500/60 transition-all">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] uppercase font-bold text-rose-400 flex items-center gap-1.5">
+                            <Scale className="w-3.5 h-3.5" />
+                            Pareto Optimal
+                          </span>
+                          <span className="text-[9px] bg-rose-500/10 text-rose-300 border border-rose-500/20 px-1.5 py-0.5 rounded font-mono">
+                            {comparisonResults.use_case_recommendations.best_quality_cost_ratio.key_metric}
+                          </span>
+                        </div>
+                        <div className="font-semibold text-xs text-white truncate">
+                          {comparisonResults.use_case_recommendations.best_quality_cost_ratio.provider_name}
+                        </div>
+                        <p className="text-[10px] text-zinc-400 line-clamp-2 leading-tight">
+                          {comparisonResults.use_case_recommendations.best_quality_cost_ratio.reasoning}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 

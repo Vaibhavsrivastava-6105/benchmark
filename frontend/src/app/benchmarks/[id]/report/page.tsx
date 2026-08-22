@@ -380,6 +380,36 @@ export default function ReportPage() {
           )}
         </div>
 
+        {/* Human-vs-Automated Alignment Summary Cards */}
+        {humanEvals && humanEvals.total_reviewed > 0 && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-zinc-50 border border-zinc-200 rounded-xl p-3">
+            <div className="space-y-0.5">
+              <span className="text-[10px] uppercase font-bold text-zinc-500">Agreement Rate</span>
+              <div className="text-xl font-bold text-zinc-900">{humanEvals.agreement_rate_pct}%</div>
+              <p className="text-[10px] text-zinc-500">AI & Human score consensus</p>
+            </div>
+            <div className="space-y-0.5">
+              <span className="text-[10px] uppercase font-bold text-zinc-500">Total Annotated</span>
+              <div className="text-xl font-bold text-zinc-900">{humanEvals.total_reviewed} <span className="text-xs text-zinc-400 font-normal">/ {allRequests.length}</span></div>
+              <p className="text-[10px] text-zinc-500">Reviewed samples</p>
+            </div>
+            <div className="space-y-0.5">
+              <span className="text-[10px] uppercase font-bold text-red-600">False Positives</span>
+              <div className="text-xl font-bold text-red-600">
+                {allRequests.filter(r => r.auto_passed && (r.human_rating === "INCORRECT" || r.human_rating === "HALLUCINATED")).length}
+              </div>
+              <p className="text-[10px] text-zinc-500">AI Passed, Human Failed</p>
+            </div>
+            <div className="space-y-0.5">
+              <span className="text-[10px] uppercase font-bold text-amber-600">False Negatives</span>
+              <div className="text-xl font-bold text-amber-600">
+                {allRequests.filter(r => !r.auto_passed && r.human_rating === "CORRECT").length}
+              </div>
+              <p className="text-[10px] text-zinc-500">AI Failed, Human Passed</p>
+            </div>
+          </div>
+        )}
+
         {allRequests.length > 0 && (
           <div className="space-y-3">
             <div className="flex flex-wrap gap-1.5">
@@ -404,7 +434,7 @@ export default function ReportPage() {
             <div className="space-y-2">
               {allRequests
                 .filter(r => selectedHumanFilter === "ALL" ? !r.human_rating : !!r.human_rating)
-                .slice(0, 50) // Limit to 50 for performance
+                .slice(0, 50)
                 .map((r: any) => {
                   const isEvalActive = activeRequestForEval?.request_id === r.request_id;
                   return (
@@ -473,12 +503,12 @@ export default function ReportPage() {
                               onChange={(e) => setEvalFeedback(e.target.value)}
                               className="w-full text-xs px-2 py-1.5 border border-blue-200 rounded text-blue-900 mb-2"
                             />
-                            <div className="flex gap-2">
-                              <button onClick={() => submitHumanEval(r.request_id, "CORRECT")} className="px-3 py-1.5 bg-green-600 text-white font-semibold rounded hover:bg-green-700 transition">?? Correct</button>
-                              <button onClick={() => submitHumanEval(r.request_id, "INCORRECT")} className="px-3 py-1.5 bg-red-600 text-white font-semibold rounded hover:bg-red-700 transition">?? Incorrect</button>
-                              <button onClick={() => submitHumanEval(r.request_id, "PARTIALLY_CORRECT")} className="px-3 py-1.5 bg-yellow-500 text-white font-semibold rounded hover:bg-yellow-600 transition">?? Partial</button>
-                              <button onClick={() => submitHumanEval(r.request_id, "HALLUCINATED")} className="px-3 py-1.5 bg-purple-600 text-white font-semibold rounded hover:bg-purple-700 transition">?? Hallucinated</button>
-                              <button onClick={() => submitHumanEval(r.request_id, "POOR_FORMAT")} className="px-3 py-1.5 bg-zinc-600 text-white font-semibold rounded hover:bg-zinc-700 transition">?? Bad Format</button>
+                            <div className="flex flex-wrap gap-2">
+                              <button onClick={() => submitHumanEval(r.request_id, "CORRECT")} className="px-3 py-1.5 bg-green-600 text-white font-semibold rounded hover:bg-green-700 transition">✓ Correct</button>
+                              <button onClick={() => submitHumanEval(r.request_id, "INCORRECT")} className="px-3 py-1.5 bg-red-600 text-white font-semibold rounded hover:bg-red-700 transition">✗ Incorrect</button>
+                              <button onClick={() => submitHumanEval(r.request_id, "PARTIALLY_CORRECT")} className="px-3 py-1.5 bg-yellow-500 text-white font-semibold rounded hover:bg-yellow-600 transition">~ Partial</button>
+                              <button onClick={() => submitHumanEval(r.request_id, "HALLUCINATED")} className="px-3 py-1.5 bg-purple-600 text-white font-semibold rounded hover:bg-purple-700 transition">✦ Hallucinated</button>
+                              <button onClick={() => submitHumanEval(r.request_id, "POOR_FORMAT")} className="px-3 py-1.5 bg-zinc-600 text-white font-semibold rounded hover:bg-zinc-700 transition">▤ Bad Format</button>
                             </div>
                           </div>
                         </div>

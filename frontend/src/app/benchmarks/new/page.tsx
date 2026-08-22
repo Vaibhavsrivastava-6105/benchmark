@@ -78,6 +78,8 @@ export default function NewBenchmark() {
   const [repetitions, setRepetitions] = useState(3);
   const [concurrency, setConcurrency] = useState(2);
   const [requestRate, setRequestRate] = useState<number | null>(null);
+  const [completedRuns, setCompletedRuns] = useState<any[]>([]);
+  const [baselineRunId, setBaselineRunId] = useState<number | "">("");
 
   // Judge LLM config
   const [useJudge, setUseJudge] = useState(false);
@@ -103,6 +105,13 @@ export default function NewBenchmark() {
         // Auto select first suite
         if (suiteData.length > 0) {
           setSelectedSuites([suiteData[0].id]);
+        }
+
+        // Fetch completed runs for baseline regression selection
+        const runsRes = await fetch(`${API_BASE}/api/runs`);
+        const runsData = await runsRes.json();
+        if (Array.isArray(runsData)) {
+          setCompletedRuns(runsData.filter((r: any) => r.status === "COMPLETED"));
         }
       } catch (err) {
         console.error("Failed to load wizard sources:", err);
@@ -213,8 +222,9 @@ export default function NewBenchmark() {
       prompt_suite_ids: selectedSuites,
       llm_judge_provider_id: useJudge ? judgeProviderId : null,
       llm_judge_model_name: useJudge ? judgeModelName : null,
-        sequential_execution: sequentialExecution,
-        custom_hardware_profile: customHardwareProfile || null
+      baseline_run_id: baselineRunId || null,
+      sequential_execution: sequentialExecution,
+      custom_hardware_profile: customHardwareProfile || null
     };
 
     try {
@@ -586,6 +596,32 @@ export default function NewBenchmark() {
                   onChange={(e) => setWarmups(parseInt(e.target.value))} 
                   className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2 text-sm focus:outline-none focus:border-zinc-500"
                 />
+              </div>
+
+              {/* Regression Baseline Selection */}
+              <div className="space-y-1.5 md:col-span-2 bg-zinc-900/50 border border-zinc-800 p-3 rounded-xl">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs uppercase font-bold tracking-wider text-blue-400 flex items-center gap-1.5">
+                    <TrendingUp className="w-3.5 h-3.5" />
+                    Regression Benchmark Baseline (Optional)
+                  </label>
+                  <span className="text-[10px] text-zinc-500">Auto-links comparison matrix</span>
+                </div>
+                <select
+                  value={baselineRunId}
+                  onChange={(e) => setBaselineRunId(e.target.value ? parseInt(e.target.value) : "")}
+                  className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2 text-xs text-zinc-200 focus:outline-none focus:border-blue-500"
+                >
+                  <option value="">None (Standard Standalone Benchmark)</option>
+                  {completedRuns.map((r: any) => (
+                    <option key={r.id} value={r.id}>
+                      Run #{r.id}: {r.name} ({new Date(r.created_at).toLocaleDateString()})
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-zinc-400 mt-1">
+                  Selecting a baseline will calculate regression & improvement deltas (Δ) for throughput, TTFT, and quality.
+                </p>
               </div>
 
               <div className="flex items-center gap-3 pt-6">
