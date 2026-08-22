@@ -75,13 +75,17 @@ export default function ReportPage() {
       providerStats.set(r.provider.name, {
         name: r.provider.name,
         type: r.provider.type,
+        setup_complexity: r.provider.setup_complexity || "unknown",
+        peakGpu: 0,
+        peakRam: 0,
         completed: 0,
         failed: 0,
         speeds: [] as number[],
         ttfts: [] as number[],
         qualityScores: [] as number[],
         jsonSuccess: 0,
-        jsonTotal: 0
+        jsonTotal: 0,
+          categories: {} as Record<string, { scores: number[] }>
       });
     }
     
@@ -100,14 +104,25 @@ export default function ReportPage() {
       
       if (ttftMs) pstat.ttfts.push(ttftMs);
       
-      r.quality_results.forEach(q => {
-        if (q.evaluator_type === "json_schema") {
-          pstat.jsonTotal++;
-          if (q.passed) pstat.jsonSuccess++;
-        } else {
-          pstat.qualityScores.push(q.score);
+      const cat = r.prompt?.category || "Uncategorized";
+        if (!pstat.categories[cat]) {
+          pstat.categories[cat] = { scores: [] };
         }
-      });
+
+        r.quality_results.forEach(q => {
+          if (q.evaluator_type === "json_schema") {
+            pstat.jsonTotal++;
+            if (q.passed) {
+              pstat.jsonSuccess++;
+              pstat.categories[cat].scores.push(1);
+            } else {
+              pstat.categories[cat].scores.push(0);
+            }
+          } else {
+            pstat.qualityScores.push(q.score);
+            pstat.categories[cat].scores.push(q.score);
+          }
+        });
       
     } else {
       pstat.failed++;
