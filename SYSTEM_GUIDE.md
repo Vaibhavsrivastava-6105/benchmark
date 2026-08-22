@@ -1,10 +1,10 @@
-# ?? Comprehensive LLM Benchmarking & Evaluation Platform Guide
+# 📖 Comprehensive LLM Benchmarking & Evaluation Platform Guide
 
 This guide provides a complete, in-depth reference for **every page**, **button**, **metric**, and **workflow** in the LLM Benchmarking & Evaluation Platform.
 
 ---
 
-## ?? Table of Contents
+## 📑 Table of Contents
 1. [System Architecture & Overview](#1-system-architecture--overview)
 2. [Sidebar Navigation](#2-sidebar-navigation)
 3. [Dashboard (`/`)](#3-dashboard-)
