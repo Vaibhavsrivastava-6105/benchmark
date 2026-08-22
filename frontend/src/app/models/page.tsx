@@ -106,8 +106,8 @@ export default function ModelsPage() {
   };
 
   // Derived unified data
+  // Only show models that are actively reported as downloaded by local engines
   const knownModelNames = Array.from(new Set([
-    ...models.map(m => m.name),
     ...providers.flatMap(p => p.models || [])
   ])).sort();
 
