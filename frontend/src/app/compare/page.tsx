@@ -31,6 +31,7 @@ interface Run {
 export default function ComparePage() {
   const [runs, setRuns] = useState<Run[]>([]);
   const [selectedRunIds, setSelectedRunIds] = useState<number[]>([]);
+  const [baselineRunId, setBaselineRunId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   
   // Results of comparison from backend
@@ -93,6 +94,24 @@ export default function ComparePage() {
     
     triggerCompare();
   }, [selectedRunIds]);
+
+  
+  const renderDiff = (current: number, baseline: number | undefined | null, invert: boolean = false, suffix: string = "") => {
+    if (baseline === undefined || baseline === null || baseline === 0) return null;
+    const diff = current - baseline;
+    if (Math.abs(diff) < 0.1) return null;
+    
+    const isPositive = diff > 0;
+    const isGood = invert ? !isPositive : isPositive;
+    const color = isGood ? "text-emerald-400" : "text-red-400";
+    const sign = isPositive ? "+" : "";
+    
+    return (
+      <span className={`ml-1.5 text-[10px] ${color} font-mono`}>
+        ({sign}{diff.toFixed(1)}{suffix})
+      </span>
+    );
+  };
 
   const toggleSelectRun = (id: number) => {
     setSelectedRunIds(prev => {
@@ -191,15 +210,15 @@ export default function ComparePage() {
   const rankedRuntimes = getRankedRuntimes();
 
   return (
-    <div className="p-8 space-y-8 flex-1">
+    <div className="p-2 space-y-2 flex-1 h-full flex flex-col overflow-hidden">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Compare Runtimes</h1>
+        <h1 className="text-sm font-bold tracking-tight">Compare Runtimes</h1>
         <p className="text-zinc-400 text-sm mt-1">Multi-criteria comparative matrix and decision recommendation tool.</p>
       </div>
 
       {/* Select Experiments Bar */}
-      <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-5 space-y-4">
+      <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-5 space-y-1">
         <h3 className="text-sm font-semibold text-zinc-350">Select runs to compare (2 to 10):</h3>
         
         {loading ? (
@@ -215,7 +234,7 @@ export default function ComparePage() {
                   key={r.id}
                   onClick={() => toggleSelectRun(r.id)}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium border flex items-center gap-2 transition-all ${
-                    selected ? "bg-[#0c0c0e] text-cyan-500 border-zinc-800" : "bg-[#0c0c0e] border-zinc-800 text-zinc-400 hover:border-zinc-800"
+                    selected ? "bg-[#0c0c0e] text-white border-zinc-800" : "bg-[#0c0c0e] border-zinc-800 text-zinc-400 hover:border-zinc-800"
                   }`}
                 >
                   {selected ? <Check className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
@@ -229,15 +248,15 @@ export default function ComparePage() {
 
       {/* Comparison Workspace */}
       {selectedRunIds.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
           
           {/* Main Scoring Matrix (Left 2 cols) */}
-          <div className="lg:col-span-2 space-y-6">
+          <div className="lg:col-span-2 space-y-2">
             
             {/* Recommendations Verdict */}
             {comparisonResults && (
-              <div className="bg-emerald-50/20 border border-emerald-200 rounded-xl p-6 space-y-3">
-                <div className="flex items-center gap-2 text-emerald-600 font-bold text-xs uppercase tracking-widest">
+              <div className="bg-zinc-900 border border-zinc-500 rounded-xl p-2 space-y-3">
+                <div className="flex items-center gap-2 text-zinc-100 font-bold text-xs uppercase tracking-widest">
                   <Award className="h-4.5 w-4.5" />
                   Winner Verdict (Balanced Profile)
                 </div>
@@ -248,9 +267,9 @@ export default function ComparePage() {
             )}
 
             {/* Matrix Table */}
-            <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-6 space-y-4">
+            <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-2 space-y-1">
               <h3 className="font-bold text-white flex items-center gap-2">
-                <GitCompare className="h-5 w-5 text-purple-500" />
+                <GitCompare className="h-5 w-5 text-zinc-300" />
                 Comparison Matrix
               </h3>
               
@@ -259,7 +278,7 @@ export default function ComparePage() {
               ) : rankedRuntimes.length === 0 ? (
                 <div className="text-center text-xs py-24 text-zinc-400 font-mono">Select at least one run to compute performance indices.</div>
               ) : (
-                <div className="overflow-x-auto">
+                <div className="overflow-auto flex-1">
                   <table className="w-full text-left text-xs border-collapse">
                     <thead>
                       <tr className="text-zinc-400 border-b border-zinc-800 uppercase tracking-wider font-semibold text-[10px]">
@@ -273,34 +292,41 @@ export default function ComparePage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-800 font-mono text-zinc-400">
-                      {rankedRuntimes.map((m: any, idx: number) => (
-                        <tr key={idx} className="hover:bg-[#0c0c0e]/5 transition-colors">
-                          <td className="py-3 px-3 font-sans font-semibold text-white">
-                            {m.provider_name}
-                            <span className="text-[9px] text-zinc-400 font-mono uppercase block mt-0.5">
-                              {m.provider_type}
-                            </span>
-                          </td>
-                          <td className="py-3 px-3 text-right text-cyan-500 font-bold text-sm">
-                            {m.score} / 100
-                          </td>
-                          <td className="py-3 px-3 text-right text-emerald-600 font-bold">
-                            {m.throughput_tok_s.toFixed(1)} t/s
-                          </td>
-                          <td className="py-3 px-3 text-right text-amber-500">
-                            {m.ttft_ms ? `${m.ttft_ms.toFixed(0)} ms` : "N/A"}
-                          </td>
-                          <td className="py-3 px-3 text-right text-zinc-400">
-                            {m.quality_pct.toFixed(1)}%
-                          </td>
-                          <td className="py-3 px-3 text-right text-purple-400">
-                            {m.vram_used_gb.toFixed(1)} GB
-                          </td>
-                          <td className="py-3 px-3 text-right text-zinc-400">
-                            {m.reliability_pct.toFixed(0)}%
-                          </td>
-                        </tr>
-                      ))}
+                      {rankedRuntimes.map((m: any, idx: number) => {
+                        const base = baselineRunId && m.run_id !== baselineRunId 
+                            ? rankedRuntimes.find((b: any) => b.run_id === baselineRunId) 
+                            : null;
+                        
+                        return (
+                          <tr key={idx} className={`hover:bg-zinc-800/20 transition-colors ${m.run_id === baselineRunId ? 'bg-blue-500/5' : ''}`}>
+                            <td className="py-1 px-3 font-sans font-semibold text-white">
+                              {m.provider_name}
+                              <span className="text-[9px] text-zinc-400 font-mono uppercase block mt-0.5">
+                                {m.provider_type} {m.run_id === baselineRunId && <span className="text-blue-400 ml-1">(Baseline)</span>}
+                              </span>
+                            </td>
+                            <td className="py-1 px-3 text-right text-white font-bold text-sm">
+                              {m.score} {renderDiff(m.score, base?.score, false, "")}
+                            </td>
+                            <td className="py-1 px-3 text-right text-zinc-100 font-bold">
+                              {m.throughput_tok_s.toFixed(1)} t/s {renderDiff(m.throughput_tok_s, base?.throughput_tok_s, false, "")}
+                            </td>
+                            <td className="py-1 px-3 text-right text-zinc-400">
+                              {m.ttft_ms ? `${m.ttft_ms.toFixed(0)} ms` : "N/A"}
+                              {m.ttft_ms ? renderDiff(m.ttft_ms, base?.ttft_ms, true, "") : null}
+                            </td>
+                            <td className="py-1 px-3 text-right text-zinc-400">
+                              {m.quality_pct.toFixed(1)}% {renderDiff(m.quality_pct, base?.quality_pct, false, "%")}
+                            </td>
+                            <td className="py-1 px-3 text-right text-zinc-300">
+                              {m.vram_used_gb.toFixed(1)} GB {renderDiff(m.vram_used_gb, base?.vram_used_gb, true, "")}
+                            </td>
+                            <td className="py-1 px-3 text-right text-zinc-400">
+                              {m.reliability_pct.toFixed(0)}% {renderDiff(m.reliability_pct, base?.reliability_pct, false, "%")}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -322,7 +348,7 @@ export default function ComparePage() {
           </div>
 
           {/* Dynamic Weight Configuration (Right column) */}
-          <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-6 space-y-6">
+          <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-2 space-y-2">
             <div className="space-y-1">
               <h3 className="font-bold text-white">Objective Weights</h3>
               <p className="text-xs text-zinc-400">Tune objectives to dynamically recalculate run scores.</p>
@@ -341,7 +367,7 @@ export default function ComparePage() {
                   key={p.key}
                   onClick={() => handleProfileSelect(p.key)}
                   className={`px-2.5 py-1 rounded text-[10px] font-bold border transition-colors ${
-                    scoringProfile === p.key ? "bg-cyan-500 text-zinc-950 shadow-sm border-0 font-medium  border-pink-500" : "bg-[#0c0c0e] border-zinc-800 text-zinc-400 hover:text-white"
+                    scoringProfile === p.key ? "bg-white text-black text-zinc-950 shadow-sm border-0 font-medium  border-zinc-500" : "bg-[#0c0c0e] border-zinc-800 text-zinc-400 hover:text-white"
                   }`}
                 >
                   {p.label}
@@ -352,7 +378,7 @@ export default function ComparePage() {
             <div className="h-[1px] bg-[#0c0c0e]" />
 
             {/* Sliders */}
-            <div className="space-y-4">
+            <div className="space-y-1">
               {[
                 { key: "quality", label: "Response Quality", color: "accent-cyan-500" },
                 { key: "throughput", label: "Throughput (tok/s)", color: "accent-emerald-500" },

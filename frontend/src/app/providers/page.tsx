@@ -198,24 +198,24 @@ export default function ProvidersPage() {
   });
 
   return (
-    <div className="p-8 space-y-8 flex-1">
+    <div className="p-2 space-y-2 flex-1 h-full flex flex-col overflow-hidden">
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Providers Configuration</h1>
+          <h1 className="text-sm font-bold tracking-tight">Providers Configuration</h1>
           <p className="text-zinc-400 text-sm mt-1">Register and test connection settings for active serving runtimes.</p>
         </div>
 
         {/* Filters */}
         <div className="flex gap-2 bg-[#0c0c0e] p-1 rounded-lg w-fit border border-zinc-800">
-          <button onClick={() => setFilter("all")} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${filter === 'all' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}>All</button>
-          <button onClick={() => setFilter("local")} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${filter === 'local' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}>Local Runtimes</button>
-          <button onClick={() => setFilter("cloud")} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${filter === 'cloud' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}>Cloud APIs</button>
+          <button onClick={() => setFilter("all")} className={`px-2 py-1.5 rounded-md text-sm font-medium transition-colors ${filter === 'all' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}>All</button>
+          <button onClick={() => setFilter("local")} className={`px-2 py-1.5 rounded-md text-sm font-medium transition-colors ${filter === 'local' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}>Local Runtimes</button>
+          <button onClick={() => setFilter("cloud")} className={`px-2 py-1.5 rounded-md text-sm font-medium transition-colors ${filter === 'cloud' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}>Cloud APIs</button>
         </div>
 
         <button
           onClick={() => setShowForm(!showForm)}
-          className="flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-semibold bg-cyan-500 text-zinc-950 shadow-sm border-0 font-medium  hover:bg-cyan-400 transition-colors transition-colors"
+          className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm font-semibold bg-white text-black text-zinc-950 shadow-sm border-0 font-medium  hover:bg-zinc-800 transition-colors transition-colors"
         >
           <Plus className="h-4 w-4 " />
           Add Provider
@@ -224,10 +224,10 @@ export default function ProvidersPage() {
 
       {/* Add Form Panel */}
       {showForm && (
-        <form onSubmit={handleSubmit} className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-6 w-full space-y-4">
+        <form onSubmit={handleSubmit} className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-2 w-full space-y-1">
           <h3 className="font-bold text-white">New Provider Details</h3>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-1">
             <div className="space-y-1.5">
               <label className="text-xs uppercase font-bold tracking-wider text-zinc-400">Provider Name</label>
               <input
@@ -235,7 +235,7 @@ export default function ProvidersPage() {
                 placeholder="e.g. Local Ollama 7B"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2 text-sm focus:outline-none focus:border-pink-500"
+                className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2 text-sm focus:outline-none focus:border-zinc-500"
               />
             </div>
             
@@ -251,7 +251,7 @@ export default function ProvidersPage() {
                   else if (e.target.value === "transformers") setBaseUrl("local");
                   else if (e.target.value === "mock") setBaseUrl("http://localhost:0");
                 }}
-                className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2 text-sm focus:outline-none focus:border-pink-500"
+                className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2 text-sm focus:outline-none focus:border-zinc-500"
               >
                 <option value="ollama">Ollama</option>
                 <option value="vllm">vLLM Server</option>
@@ -268,7 +268,7 @@ export default function ProvidersPage() {
                 type="text"
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
-                className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2 text-sm font-mono focus:outline-none focus:border-pink-500"
+                className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2 text-sm font-mono focus:outline-none focus:border-zinc-500"
               />
             </div>
 
@@ -279,7 +279,7 @@ export default function ProvidersPage() {
                 placeholder="sk-..."
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2 text-sm font-mono focus:outline-none focus:border-pink-500"
+                className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2 text-sm font-mono focus:outline-none focus:border-zinc-500"
               />
             </div>
 
@@ -290,7 +290,7 @@ export default function ProvidersPage() {
                 placeholder="Leave empty for global default"
                 value={maxConcurrency}
                 onChange={(e) => setMaxConcurrency(e.target.value ? Number(e.target.value) : "")}
-                className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2 text-sm font-mono focus:outline-none focus:border-pink-500"
+                className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2 text-sm font-mono focus:outline-none focus:border-zinc-500"
                 min="1"
               />
             </div>
@@ -300,13 +300,13 @@ export default function ProvidersPage() {
             <button
               type="button"
               onClick={() => setShowForm(false)}
-              className="px-4 py-2 border border-zinc-800 text-zinc-400 hover:text-white rounded-lg text-sm transition-colors"
+              className="px-2 py-2 border border-zinc-800 text-zinc-400 hover:text-white rounded-lg text-sm transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-5 py-2 rounded-lg text-sm font-bold bg-cyan-500 text-zinc-950 shadow-sm border-0 font-medium  hover:bg-cyan-400 transition-colors transition-colors"
+              className="px-5 py-2 rounded-lg text-sm font-bold bg-white text-black text-zinc-950 shadow-sm border-0 font-medium  hover:bg-zinc-800 transition-colors transition-colors"
             >
               Save Settings
             </button>
@@ -318,11 +318,11 @@ export default function ProvidersPage() {
       {loading ? (
         <div className="text-zinc-400 font-mono text-xs">Querying registered servers...</div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2 overflow-y-auto no-scrollbar flex-1 min-h-0 pr-2 pb-8">
           {filteredProviders.map((p) => (
-            <div key={p.id} className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-5 space-y-4 flex flex-col justify-between">
+            <div key={p.id} className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-2 space-y-1 flex flex-col justify-between">
               
-              <div className="space-y-3">
+              <div className="space-y-1.5">
                 <div className="flex justify-between items-start">
                   <div>
                     <h3 className="font-bold text-white">{p.name}</h3>
@@ -332,31 +332,31 @@ export default function ProvidersPage() {
                   </div>
                   
                   <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold border ${
-                    (p.status || p.last_status) === "ONLINE" ? "bg-emerald-50 text-emerald-600 border-emerald-200" :
-                    (p.status || p.last_status) === "OFFLINE" ? "bg-zinc-800 text-white border-zinc-800" :
-                    "bg-black text-zinc-400 border-zinc-800"
+                    ((p.process_telemetry ? p.process_telemetry.online : (p.status || p.last_status === "ONLINE")) ? "bg-zinc-900 text-zinc-100 border-zinc-500" :
+                    ((p.status || p.last_status) === "OFFLINE" || (p.process_telemetry && !p.process_telemetry.online) ? "bg-zinc-800 text-white border-zinc-800" :
+                    "bg-black text-zinc-400 border-zinc-800"))
                   }`}>
-                    {p.status || p.last_status || "UNTESTED"}
+                    {(p.process_telemetry ? (p.process_telemetry.online ? "ONLINE" : "OFFLINE") : (p.status || p.last_status || "UNTESTED"))}
                   </span>
                 </div>
 
-                <div className="space-y-1 bg-[#0c0c0e]/5 p-3 rounded-lg border border-zinc-800 font-mono text-xs text-zinc-400">
-                    <div className="truncate mb-2">URL: {p.base_url}</div>
+                <div className="space-y-1 bg-[#0c0c0e]/5 p-2 rounded-lg border border-zinc-800 font-mono text-xs text-zinc-400">
+                    <div className="truncate mb-1.5">URL: {p.base_url}</div>
                     
-                    <div className="flex items-center gap-2 mb-2">
+                    <div className="flex items-center gap-1.5 mb-1.5">
                       <span>Max Concurrency:</span>
                       <input 
                         type="number"
                         placeholder={p.max_concurrency ? p.max_concurrency.toString() : "Global default"}
                         value={pendingConcurrency[p.id] !== undefined ? pendingConcurrency[p.id] : ""}
                         onChange={(e) => setPendingConcurrency({...pendingConcurrency, [p.id]: e.target.value})}
-                        className="flex-1 bg-[#0c0c0e] border border-zinc-800 rounded px-2 py-1 focus:outline-none focus:border-pink-500"
+                        className="flex-1 bg-[#0c0c0e] border border-zinc-800 rounded px-1.5 py-0.5 text-[10px] focus:outline-none focus:border-zinc-500"
                         min="1"
                       />
                       {pendingConcurrency[p.id] !== undefined && (
                         <button 
                           onClick={() => saveProviderConcurrency(p.id)}
-                          className="px-2 py-1 bg-[#0c0c0e] text-cyan-500 border border-zinc-800 rounded hover:bg-zinc-800"
+                          className="px-1.5 py-0.5 text-[10px] bg-[#0c0c0e] text-white border border-zinc-800 rounded hover:bg-zinc-800"
                         >
                           Save
                         </button>
@@ -364,19 +364,19 @@ export default function ProvidersPage() {
                     </div>
 
                     {p.type === "openai_compatible" ? (
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
                       <span>Key:</span>
                       <input 
                         type="password"
                         placeholder={p.api_key ? "â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" : "Paste API Key here"}
                         value={pendingKeys[p.id] !== undefined ? pendingKeys[p.id] : ""}
                         onChange={(e) => setPendingKeys({...pendingKeys, [p.id]: e.target.value})}
-                        className="flex-1 bg-[#0c0c0e] border border-zinc-800 rounded px-2 py-1 focus:outline-none focus:border-pink-500"
+                        className="flex-1 bg-[#0c0c0e] border border-zinc-800 rounded px-1.5 py-0.5 text-[10px] focus:outline-none focus:border-zinc-500"
                       />
                       {pendingKeys[p.id] !== undefined && (
                         <button 
                           onClick={() => saveProviderKey(p.id)}
-                          className="px-2 py-1 bg-[#0c0c0e] text-cyan-500 border border-zinc-800 rounded hover:bg-zinc-800"
+                          className="px-1.5 py-0.5 text-[10px] bg-[#0c0c0e] text-white border border-zinc-800 rounded hover:bg-zinc-800"
                         >
                           Save
                         </button>
@@ -388,7 +388,7 @@ export default function ProvidersPage() {
                     </div>
                   )}
                   {(p.error || p.last_error) && (
-                    <div className="mt-2 text-[10px] text-red-400 font-sans p-2 bg-red-950/20 border border-zinc-800 rounded break-words whitespace-pre-wrap">
+                    <div className="mt-2 text-[10px] text-zinc-500 font-sans p-2 bg-zinc-800 border border-zinc-800 rounded break-words whitespace-pre-wrap">
                       {p.error || p.last_error}
                     </div>
                   )}
@@ -396,8 +396,8 @@ export default function ProvidersPage() {
 
                 {/* Available models logged */}
                 {p.models && p.models.length > 0 && (
-                  <div className="space-y-1.5">
-                    <div className="text-[10px] text-zinc-400 font-bold uppercase">Available Models ({p.models.length})</div>
+                  <div className="space-y-1 mt-1">
+                    <div className="text-[9px] text-zinc-400 font-bold uppercase">Available Models ({p.models.length})</div>
                     <div className="flex flex-wrap gap-1.5">
                       {p.models.slice(0, 5).map(m => (
                         <span key={m} className="px-2 py-0.5 bg-[#0c0c0e] border border-zinc-800 text-[10px] text-zinc-400 rounded font-mono">
@@ -413,11 +413,11 @@ export default function ProvidersPage() {
               </div>
 
               {/* Action buttons */}
-              <div className="flex gap-3 pt-3 border-t border-zinc-800/80 mt-4">
+              <div className="flex gap-2 pt-2 border-t border-zinc-800/80 mt-2">
                 <button
                   onClick={() => testConnection(p.id)}
                   disabled={testingId === p.id}
-                  className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 border border-zinc-800 bg-[#0c0c0e] hover:bg-zinc-900 text-zinc-400 hover:text-white rounded-lg text-xs transition-colors"
+                  className="flex-1 flex items-center justify-center gap-2 px-2 py-1 border border-zinc-800 bg-[#0c0c0e] hover:bg-zinc-900 text-zinc-400 hover:text-white rounded-lg text-xs transition-colors"
                 >
                   <RefreshCw className={`h-3.5 w-3.5 ${testingId === p.id ? "animate-spin" : ""}`} />
                   {testingId === p.id ? "Testing..." : "Test Connection"}

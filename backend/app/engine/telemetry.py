@@ -12,8 +12,6 @@ try:
 except Exception:
     pass
 
-def is_demo_mode() -> bool:
-    return os.getenv("DEMO_MODE", "false").lower() == "true"
 
 class TelemetryCollector:
     @staticmethod
@@ -37,29 +35,6 @@ class TelemetryCollector:
         Collect metrics for all local NVIDIA GPUs. Fallbacks to demo simulation if DEMO_MODE=true.
         """
         # 1. Demo Mode Simulation
-        if is_demo_mode():
-            # Return dual GPU simulation
-            return [
-                {
-                    "index": 0,
-                    "name": "NVIDIA GeForce RTX 4090",
-                    "utilization": round(50 + 45 * (0.5 + 0.5 * time.time() % 10 / 10), 1), # wave simulation
-                    "vram_used": int(18.2 * 1024**3 + (time.time() % 5) * 50 * 1024**2), # roughly 18.2GB
-                    "vram_total": 24 * 1024**3,
-                    "power_watts": int(120 + 280 * (0.5 + 0.5 * time.time() % 10 / 10)),
-                    "temperature_celsius": int(55 + 15 * (time.time() % 10 / 10)),
-                },
-                {
-                    "index": 1,
-                    "name": "NVIDIA GeForce RTX 4090",
-                    "utilization": round(40 + 55 * (0.3 + 0.7 * time.time() % 8 / 8), 1),
-                    "vram_used": int(15.4 * 1024**3),
-                    "vram_total": 24 * 1024**3,
-                    "power_watts": int(90 + 210 * (0.3 + 0.7 * time.time() % 8 / 8)),
-                    "temperature_celsius": int(52 + 10 * (time.time() % 8 / 8)),
-                }
-            ]
-
         # 2. Real NVML Hardware Collection
         gpus = []
         if not nvml_available:
@@ -137,12 +112,7 @@ class TelemetryCollector:
         cpu_freq = psutil.cpu_freq()
         
         gpu_info = []
-        if is_demo_mode():
-            gpu_info = [
-                {"name": "NVIDIA GeForce RTX 4090", "vram_total": 24 * 1024**3},
-                {"name": "NVIDIA GeForce RTX 4090", "vram_total": 24 * 1024**3}
-            ]
-        elif nvml_available:
+        if nvml_available:
             try:
                 device_count = pynvml.nvmlDeviceGetCount()
                 for i in range(device_count):
@@ -164,6 +134,5 @@ class TelemetryCollector:
             "cpu_cores": cpu_count,
             "cpu_max_frequency_mhz": cpu_freq.max if cpu_freq else "N/A",
             "ram_total_bytes": mem.total,
-            "gpus": gpu_info,
-            "demo_mode": is_demo_mode()
+            "gpus": gpu_info
         }

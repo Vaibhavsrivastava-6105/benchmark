@@ -63,11 +63,11 @@ const ProviderCard = ({ provider }: { provider: any }) => {
   const isNative = provider.type === "transformers";
 
   return (
-    <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-5 flex flex-col justify-between hover:border-zinc-700 transition-colors h-32">
-      <div className="flex justify-between items-center mb-4">
-        <span className="font-bold text-sm text-white truncate pr-2">{provider.name}</span>
+    <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-1.5 flex flex-col justify-between hover:border-zinc-700 transition-colors h-12">
+      <div className="flex justify-between items-center mb-1">
+        <span className="font-bold text-xs text-white truncate pr-2">{provider.name}</span>
         <div className="flex items-center gap-2">
-          <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold border ${isOnline ? "bg-emerald-950 text-emerald-400 border-emerald-800" : "bg-zinc-900 text-zinc-500 border-zinc-800"}`}>
+          <span className={`px-1.5 py-[1px] rounded text-[9px] uppercase font-bold border ${isOnline ? "bg-zinc-900 text-zinc-100 border-zinc-500" : "bg-zinc-900 text-zinc-500 border-zinc-800"}`}>
             {isOnline ? "ONLINE" : "OFFLINE"}
           </span>
           
@@ -75,10 +75,10 @@ const ProviderCard = ({ provider }: { provider: any }) => {
       </div>
       
       <div className="flex justify-between items-end mt-auto">
-        <div className="text-xs text-zinc-500 font-medium tracking-wide uppercase">
+        <div className="text-[10px] text-zinc-500 font-medium tracking-wide uppercase">
           Network Latency
         </div>
-        <div className="text-xl font-bold font-mono text-white">
+        <div className="text-xs font-bold font-mono text-white">
           {ping !== null ? `${ping} ms` : (isOnline ? "Measuring..." : "--")}
         </div>
       </div>
@@ -229,12 +229,12 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="p-8 space-y-8 flex-1">
+    <div className="p-2 xl:p-3 flex flex-col gap-2 flex-1 h-full overflow-hidden">
       {/* Top Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">System Dashboard</h1>
-          <p className="text-zinc-400 text-sm mt-1">Real-time LLM runtime serving telemetry and benchmark histories.</p>
+          <h1 className="text-sm font-bold tracking-tight">System Dashboard</h1>
+          <p className="text-zinc-400 text-xs">Real-time LLM runtime serving telemetry and benchmark histories.</p>
         </div>
         <div className="flex gap-3">
           <button 
@@ -246,7 +246,7 @@ export default function Dashboard() {
           </button>
           <Link 
             href="/benchmarks/new" 
-            className="flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-semibold bg-cyan-500 text-zinc-950 shadow-sm border-0 font-medium  hover:bg-cyan-400 transition-colors transition-colors"
+            className="flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-semibold bg-white text-black text-zinc-950 shadow-sm border-0 font-medium  hover:bg-zinc-800 transition-colors transition-colors"
           >
             <Play className="h-4 w-4 fill-white " />
             Launch Benchmark
@@ -256,20 +256,20 @@ export default function Dashboard() {
 
       {/* Live Active Benchmark Notification */}
       {activeRun && (
-        <div className="bg-cyan-950/30 border border-cyan-900/50 rounded-xl p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div className="bg-zinc-800 border border-white rounded-xl p-2 flex-none flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <span className="h-2.5 w-2.5 rounded-full bg-cyan-400 animate-ping" />
-              <span className="text-xs uppercase font-bold tracking-widest text-cyan-500">ACTIVE BENCHMARK RUNNING</span>
+              <span className="h-2.5 w-2.5 rounded-full bg-zinc-800 animate-ping" />
+              <span className="text-xs uppercase font-bold tracking-widest text-white">ACTIVE BENCHMARK RUNNING</span>
             </div>
-            <h3 className="text-lg font-bold text-white">{activeRun.name}</h3>
-            <p className="text-sm text-zinc-400">
+            <h3 className="text-sm font-bold text-white">{activeRun.name}</h3>
+            <p className="text-xs text-zinc-400">
               Running model: <span className="text-white font-mono">{activeRun.config?.model?.name}</span> | Progress: {activeRun.completed_requests} / {activeRun.total_requests} requests
             </p>
           </div>
           <Link 
             href={`/benchmarks/${activeRun.id}`}
-            className="flex items-center gap-2 px-4 py-2 border border-cyan-900/50 text-cyan-400 text-sm font-medium rounded-lg bg-cyan-900/50 hover:bg-cyan-800 hover:text-white transition-all"
+            className="flex items-center gap-2 px-4 py-2 border border-white text-white text-xs font-medium rounded-lg bg-zinc-800 hover:bg-zinc-800 hover:text-white transition-all"
           >
             View Live Telemetry
             <ArrowRight className="h-4 w-4" />
@@ -279,7 +279,7 @@ export default function Dashboard() {
 
       
       {/* Live Engines & Hardware Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 flex-none">
         {providers.filter(p => ["Local llama.cpp (Auto-Setup)", "Local Hugging Face Transformers", "Local vLLM (Auto-Setup)", "Local Ollama"].includes(p.name)).map(provider => (
             <ProviderCard key={provider.id} provider={provider} />
           ))}
@@ -287,14 +287,14 @@ export default function Dashboard() {
 
       {/* Summary Cards */}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 flex-none">
         {/* Active Run Status */}
-        <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-5 space-y-2">
+        <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-2 space-y-0.5">
           <div className="flex justify-between items-center text-zinc-400">
             <span className="text-xs uppercase tracking-wider font-bold">Active Engine</span>
-            <Activity className="h-4 w-4 text-cyan-500" />
+            <Activity className="h-4 w-4 text-white" />
           </div>
-          <div className="text-xl font-bold font-mono tracking-tight truncate">
+          <div className="text-sm font-bold font-mono tracking-tight truncate">
             {activeBenchmarkName}
           </div>
           <div className="text-xs text-zinc-400">
@@ -303,12 +303,12 @@ export default function Dashboard() {
         </div>
 
         {/* Throughput */}
-        <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-5 space-y-2">
+        <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-2 space-y-0.5">
           <div className="flex justify-between items-center text-zinc-400">
             <span className="text-xs uppercase tracking-wider font-bold">Mean Throughput</span>
-            <Gauge className="h-4 w-4 text-green-500" />
+            <Gauge className="h-4 w-4 text-white" />
           </div>
-          <div className="text-2xl font-bold font-mono text-green-500">
+          <div className="text-base font-bold font-mono text-white">
             {activeRun ? "Calculating..." : (latestCompletedRun?.mean_tpot_ms ? (1000 / latestCompletedRun.mean_tpot_ms).toFixed(1) + " t/s" : "-- t/s")}
           </div>
           <div className="text-xs text-zinc-400">
@@ -317,12 +317,12 @@ export default function Dashboard() {
         </div>
 
         {/* Latency (TTFT) */}
-        <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-5 space-y-2">
+        <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-2 space-y-0.5">
           <div className="flex justify-between items-center text-zinc-400">
             <span className="text-xs uppercase tracking-wider font-bold">Average TTFT</span>
-            <Clock className="h-4 w-4 text-orange-500" />
+            <Clock className="h-4 w-4 text-white" />
           </div>
-          <div className="text-2xl font-bold font-mono text-orange-500">
+          <div className="text-base font-bold font-mono text-white">
             {activeRun ? "Calculating..." : (latestCompletedRun?.mean_ttft_ms ? latestCompletedRun.mean_ttft_ms.toFixed(0) + " ms" : "-- ms")}
           </div>
           <div className="text-xs text-zinc-400">
@@ -331,12 +331,12 @@ export default function Dashboard() {
         </div>
 
         {/* GPU VRAM usage */}
-        <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-5 space-y-2">
+        <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-2 space-y-0.5">
           <div className="flex justify-between items-center text-zinc-400">
             <span className="text-xs uppercase tracking-wider font-bold">VRAM Footprint</span>
-            <Layers className="h-4 w-4 text-blue-500" />
+            <Layers className="h-4 w-4 text-white" />
           </div>
-          <div className="text-2xl font-bold font-mono text-blue-500">
+          <div className="text-base font-bold font-mono text-white">
             {activeRun ? "Tracking..." : (systemStats?.live?.gpu_utilization?.[0] ? (systemStats.live.gpu_utilization[0].vram_used / 1024**3).toFixed(1) + " / " + (systemStats.live.gpu_utilization[0].vram_total / 1024**3).toFixed(0) + " GB" : "-- GB")}
           </div>
           <div className="text-xs text-zinc-400 truncate">
@@ -345,145 +345,167 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Main Charts & Visualizations */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Hardware Usage Time Series */}
-        <div className="lg:col-span-2 bg-[#0c0c0e] border border-zinc-800 rounded-xl p-6 space-y-4">
-          <div className="flex justify-between items-center">
-            <h3 className="font-bold text-white">Hardware Telemetry Over Time</h3>
-            <span className="text-xs text-zinc-400 font-mono">Sampling: 250ms</span>
+      {/* Main Dashboard Workspace: Side-by-Side Telemetry & Experiments */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-2 flex-1 min-h-0 overflow-hidden">
+        
+        {/* Left Col (5/12): Hardware Telemetry & Specs */}
+        <div className="lg:col-span-5 bg-[#0c0c0e] border border-zinc-800 rounded-xl p-2.5 flex flex-col gap-2 h-full overflow-hidden">
+          <div className="flex justify-between items-center px-1">
+            <h3 className="font-bold text-white text-xs">Hardware Telemetry & Specs</h3>
+            <span className="text-[10px] text-zinc-500 font-mono">Sampling: 250ms</span>
           </div>
-          <div className="h-72">
+          
+          {/* Chart */}
+          <div className="h-32 min-h-[110px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={getSpeedChartData()}>
                 <defs>
                   <linearGradient id="gpuGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#06b6d4" stopOpacity={0}/>
+                    <stop offset="5%" stopColor="#ffffff" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#ffffff" stopOpacity={0}/>
                   </linearGradient>
                   <linearGradient id="cpuGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#f59e0b" stopOpacity={0}/>
+                    <stop offset="5%" stopColor="#888888" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#888888" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
-                <XAxis dataKey="tick" stroke="#52525b" fontSize={10} tickLine={false} />
-                <YAxis stroke="#52525b" fontSize={10} domain={[0, 100]} unit="%" tickLine={false} />
+                <XAxis dataKey="tick" stroke="#52525b" fontSize={9} tickLine={false} />
+                <YAxis stroke="#52525b" fontSize={9} domain={[0, 100]} unit="%" tickLine={false} />
                 <Tooltip 
                   contentStyle={{ backgroundColor: "#18181b", borderColor: "#27272a", borderRadius: "8px" }}
-                  labelClassName="text-zinc-400 text-xs"
+                  labelClassName="text-zinc-400 text-[10px]"
                 />
-                <Area type="monotone" dataKey="gpu0" stroke="#06b6d4" fillOpacity={1} fill="url(#gpuGrad)" name="GPU 0 Util %" />
-                <Area type="monotone" dataKey="cpu" stroke="#f59e0b" fillOpacity={1} fill="url(#cpuGrad)" name="CPU Util %" />
+                <Area type="monotone" dataKey="gpu0" stroke="#ffffff" fillOpacity={1} fill="url(#gpuGrad)" name="GPU Util %" />
+                <Area type="monotone" dataKey="cpu" stroke="#888888" fillOpacity={1} fill="url(#cpuGrad)" name="CPU Util %" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
-        </div>
 
-        {/* Summary side-by-side card */}
-        <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-6 space-y-6 flex flex-col justify-between">
-          <div className="space-y-4">
-            <h3 className="font-bold text-white">Recent Benchmarks</h3>
-            <div className="space-y-4">
-              {runs.length === 0 ? (
-                <div className="text-sm text-zinc-500">No benchmarks run yet.</div>
-              ) : (
-                runs.slice(0, 4).map((r: any) => (
-                  <div key={r.id} className="flex justify-between items-center text-sm border-b border-zinc-800 pb-2">
-                    <span className="text-zinc-400 truncate pr-4">{r.name}</span>
-                    <span className={`font-mono font-semibold ${r.status === 'COMPLETED' ? 'text-green-500' : (r.status === 'RUNNING' ? 'text-cyan-500' : 'text-zinc-500')}`}>
-                      {r.status === 'COMPLETED' && r.mean_tpot_ms ? (1000 / r.mean_tpot_ms).toFixed(1) + ' tok/s' : r.status}
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-          
-          {latestCompletedRun && (
-            <div className="bg-transparent border border-zinc-800 rounded-lg p-4 flex gap-3 items-center">
-              <Award className="h-5 w-5 text-orange-500 shrink-0" />
-              <div className="text-xs space-y-0.5">
-                <div className="font-semibold text-white">Latest Execution: {latestCompletedRun.name}</div>
-                <p className="text-zinc-400">
-                  {latestCompletedRun.mean_tpot_ms 
-                    ? `Throughput: ${(1000 / latestCompletedRun.mean_tpot_ms).toFixed(1)} tok/s | Latency: ${latestCompletedRun.mean_ttft_ms?.toFixed(0)} ms`
-                    : "Completed without timing data."}
-                </p>
+          {/* Live Specs */}
+          {systemStats?.static && (
+            <div className="bg-black/50 border border-zinc-800/60 rounded-lg p-2 font-mono text-[10px] space-y-1.5 flex-1 overflow-y-auto no-scrollbar min-h-0">
+              <div className="flex justify-between items-center border-b border-zinc-800 pb-1">
+                <span className="text-zinc-300 font-semibold">Live System Hardware</span>
+                {systemStats.live && <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>}
               </div>
+              
+              {/* CPU */}
+              <div className="text-zinc-400 flex flex-col gap-0.5">
+                <div className="truncate"><span className="text-white">CPU:</span> {systemStats.static.cpu_model || "Unknown CPU"}</div>
+                {systemStats.live && (
+                  <div className="flex justify-between pl-2 border-l border-zinc-800 text-[9px]">
+                    <span>Util: <span className="text-white">{systemStats.live.cpu_utilization.toFixed(1)}%</span></span>
+                    <span>RAM: <span className="text-white">{(systemStats.live.ram_used_bytes / 1024**3).toFixed(1)} GB</span> / {(systemStats.static.ram_total_bytes / 1024**3).toFixed(1)} GB</span>
+                  </div>
+                )}
+              </div>
+              
+              {/* GPU */}
+              {systemStats.static.gpus?.map((g: any, i: number) => {
+                const liveGpu = systemStats.live?.gpu_utilization?.find((l:any) => l.index === i) || null;
+                return (
+                  <div key={i} className="text-zinc-400 pt-1 border-t border-zinc-800/50 flex flex-col gap-0.5">
+                    <div className="truncate"><span className="text-white">GPU {i}:</span> {g.name}</div>
+                    {liveGpu ? (
+                      <div className="flex justify-between pl-2 border-l border-zinc-800 text-[9px]">
+                        <span>Util: <span className="text-white">{liveGpu.utilization}%</span></span>
+                        <span>Temp: <span className="text-white">{liveGpu.temperature_celsius}C</span></span>
+                        <span>VRAM: <span className="text-white">{(liveGpu.vram_used / 1024**3).toFixed(1)}</span> / {(g.vram_total / 1024**3).toFixed(1)} GB</span>
+                      </div>
+                    ) : (
+                      <div><span className="text-white">VRAM:</span> {(g.vram_total / 1024**3).toFixed(1)} GB</div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
-      </div>
 
-      {/* Historical Benchmark Runs */}
-      <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-6 space-y-4">
-        <h3 className="font-bold text-white">Recent Experiments</h3>
-        
-        {loading ? (
-          <div className="text-center py-8 text-zinc-400">Querying database runs...</div>
-        ) : runs.length === 0 ? (
-          <div className="text-center py-12 border border-dashed border-zinc-800 rounded-xl space-y-3">
-            <AlertTriangle className="h-8 w-8 text-orange-500 mx-auto" />
-            <div className="text-sm font-semibold text-zinc-400">No benchmark experiments found</div>
-            <p className="text-xs text-zinc-400 w-full mx-auto">Launch a new benchmark run configuration to initialize comparative charts.</p>
+        {/* Right Col (7/12): Recent Experiments Table */}
+        <div className="lg:col-span-7 bg-[#0c0c0e] border border-zinc-800 rounded-xl p-2.5 flex flex-col h-full overflow-hidden">
+          <div className="flex justify-between items-center pb-2 mb-1 border-b border-zinc-800">
+            <div className="flex items-center gap-2">
+              <h3 className="font-bold text-white text-xs">Recent Experiments</h3>
+              <span className="text-[10px] bg-zinc-900 border border-zinc-800 text-zinc-400 font-mono px-1.5 py-0.5 rounded">
+                {runs.length} runs
+              </span>
+            </div>
+            {latestCompletedRun && (
+              <span className="text-[10px] text-zinc-400 font-mono truncate max-w-[200px]">
+                Latest: <span className="text-white">{latestCompletedRun.name}</span>
+              </span>
+            )}
           </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm border-collapse">
-              <thead>
-                <tr className="text-zinc-400 border-b border-zinc-800 font-semibold text-xs">
-                  <th className="py-3 px-4">Run Name</th>
-                  <th className="py-3 px-4">Status</th>
-                  <th className="py-3 px-4">Model</th>
-                  <th className="py-3 px-4">Progress</th>
-                  <th className="py-3 px-4">Duration</th>
-                  <th className="py-3 px-4">Created</th>
-                  <th className="py-3 px-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-800 font-mono text-xs">
-                {runs.map((r) => (
-                  <tr key={r.id} className="hover:bg-[#0c0c0e]/5 transition-colors">
-                    <td className="py-3 px-4 font-sans font-semibold text-white">{r.name}</td>
-                    <td className="py-3 px-4">
-                      <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold ${
-                        r.status === "COMPLETED" ? "bg-emerald-50 text-green-500 border border-emerald-200" :
-                        r.status === "RUNNING" ? "bg-[#0c0c0e] text-cyan-500 border border-zinc-800 animate-pulse" :
-                        r.status === "FAILED" ? "bg-zinc-800 text-white border border-zinc-800" :
-                        "bg-[#0c0c0e] text-zinc-400"
-                      }`}>
-                        {r.status}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-zinc-400">{r.config?.model?.name}</td>
-                    <td className="py-3 px-4 text-zinc-400">{r.completed_requests} / {r.total_requests}</td>
-                    <td className="py-3 px-4 text-zinc-400">
-                      {r.duration_seconds ? `${r.duration_seconds.toFixed(1)}s` : "N/A"}
-                    </td>
-                    <td className="py-3 px-4 text-zinc-400">
-                      {new Date(r.created_at).toLocaleString([], { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' })}
-                    </td>
-                    <td className="py-3 px-4 text-right space-x-2">
-                      <Link 
-                        href={`/benchmarks/${r.id}`}
-                        className="px-2.5 py-1 text-xs border border-zinc-800 bg-[#0c0c0e] text-zinc-400 hover:text-white rounded hover:bg-zinc-900 transition-colors inline-block"
-                      >
-                        Inspect
-                      </Link>
-                      <button
-                        onClick={() => handleExport(r.id, "json")}
-                        className="p-1 border border-zinc-800 text-zinc-400 hover:text-white rounded hover:bg-zinc-900 transition-colors inline-block"
-                        title="Download JSON Export"
-                      >
-                        <Download className="h-3 w-3" />
-                      </button>
-                    </td>
+          
+          {loading ? (
+            <div className="text-center py-12 text-zinc-400 text-xs">Querying database runs...</div>
+          ) : runs.length === 0 ? (
+            <div className="text-center py-12 border border-dashed border-zinc-800 rounded-xl space-y-2 m-2">
+              <div className="text-xs font-semibold text-zinc-400">No benchmark experiments found</div>
+              <p className="text-[10px] text-zinc-500">Launch a new benchmark run configuration to initialize comparative charts.</p>
+            </div>
+          ) : (
+            <div className="overflow-y-auto no-scrollbar flex-1 min-h-0 pr-1">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="text-zinc-500 border-b border-zinc-800/80 font-mono text-[10px] uppercase">
+                    <th className="py-2 px-2">Run Name</th>
+                    <th className="py-2 px-2">Status</th>
+                    <th className="py-2 px-2">Speed</th>
+                    <th className="py-2 px-2">Model</th>
+                    <th className="py-2 px-2">Duration</th>
+                    <th className="py-2 px-2 text-right">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+                </thead>
+                <tbody className="divide-y divide-zinc-800/50 font-mono text-xs">
+                  {runs.map((r) => (
+                    <tr key={r.id} className="hover:bg-zinc-900/40 transition-colors">
+                      <td className="py-2 px-2 font-sans font-semibold text-white truncate max-w-[150px]" title={r.name}>
+                        {r.name}
+                      </td>
+                      <td className="py-2 px-2">
+                        <span className={`px-1.5 py-0.5 rounded text-[9px] uppercase font-bold border ${
+                          r.status === "COMPLETED" ? "bg-zinc-900 text-white border-zinc-600" :
+                          r.status === "RUNNING" ? "bg-black text-white border-white animate-pulse" :
+                          r.status === "FAILED" ? "bg-zinc-900 text-zinc-500 border-zinc-800" :
+                          "bg-black text-zinc-400 border-zinc-800"
+                        }`}>
+                          {r.status}
+                        </span>
+                      </td>
+                      <td className="py-2 px-2 font-semibold text-white">
+                        {r.status === "COMPLETED" && r.mean_tpot_ms ? `${(1000 / r.mean_tpot_ms).toFixed(1)} t/s` : "-"}
+                      </td>
+                      <td className="py-2 px-2 text-zinc-400 truncate max-w-[120px]" title={r.config?.model?.name}>
+                        {r.config?.model?.name || "-"}
+                      </td>
+                      <td className="py-2 px-2 text-zinc-500 text-[10px]">
+                        {r.duration_seconds ? `${r.duration_seconds.toFixed(1)}s` : "-"}
+                      </td>
+                      <td className="py-2 px-2 text-right space-x-1.5">
+                        <Link 
+                          href={`/benchmarks/${r.id}`}
+                          className="px-2 py-0.5 text-[10px] border border-zinc-800 bg-black text-zinc-300 hover:text-white rounded hover:bg-zinc-800 transition-colors inline-block"
+                        >
+                          Inspect
+                        </Link>
+                        <button
+                          onClick={() => handleExport(r.id, "json")}
+                          className="p-1 border border-zinc-800 text-zinc-400 hover:text-white rounded hover:bg-zinc-800 transition-colors inline-block"
+                          title="Download JSON Export"
+                        >
+                          <Download className="h-2.5 w-2.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
       </div>
     </div>
   );

@@ -281,10 +281,10 @@ export default function NewBenchmark() {
   });
 
   return (
-    <div className="p-8 w-full mx-auto space-y-8 flex-1">
+    <div className="p-2 space-y-2 flex-1 h-full flex flex-col overflow-hidden">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Create Experiment</h1>
+        <h1 className="text-sm font-bold tracking-tight">Create Experiment</h1>
         <p className="text-zinc-400 text-sm mt-1">Benchmarking wizard for testing identical models and configurations fairly.</p>
       </div>
 
@@ -299,8 +299,8 @@ export default function NewBenchmark() {
         ].map((s) => (
           <React.Fragment key={s.num}>
             <div className={`flex items-center gap-2 px-3 py-1 rounded text-sm ${
-              step === s.num ? "bg-[#0c0c0e] text-cyan-500 font-bold border border-zinc-800" :
-              step > s.num ? "text-emerald-600" : "text-zinc-400"
+              step === s.num ? "bg-[#0c0c0e] text-white font-bold border border-zinc-800" :
+              step > s.num ? "text-zinc-100" : "text-zinc-400"
             }`}>
               <span className="w-5 h-5 rounded-full bg-[#0c0c0e] flex items-center justify-center text-xs font-mono">
                 {s.num}
@@ -313,29 +313,29 @@ export default function NewBenchmark() {
       </div>
 
       {/* Form Steps */}
-      <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-8 min-h-[380px] flex flex-col justify-between">
+      <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-2 min-h-[380px] flex flex-col justify-between">
         
         {/* STEP 1: MODEL SELECTION */}
         {step === 1 && (
-          <div className="space-y-6">
+          <div className="space-y-2 flex-1 flex flex-col min-h-0 overflow-hidden">
             <h3 className="text-lg font-bold text-white flex items-center gap-2">
-              <Settings className="h-5 w-5 text-cyan-500" />
+              <Settings className="h-5 w-5 text-white" />
               Configure Target Model
             </h3>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 flex-none">
               <div className="space-y-1.5 col-span-1 md:col-span-2">
                 <label className="text-xs uppercase font-bold tracking-wider text-zinc-400">Benchmark Run Name</label>
                 <input 
                   type="text" 
                   value={runName} 
                   onChange={(e) => setRunName(e.target.value)} 
-                  className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2.5 text-sm font-sans focus:outline-none focus:border-pink-500"
+                  className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2.5 text-sm font-sans focus:outline-none focus:border-zinc-500"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs uppercase font-bold tracking-wider text-emerald-400 flex items-center gap-1">
+                <label className="text-xs uppercase font-bold tracking-wider text-zinc-100 flex items-center gap-1">
                   <Server className="w-3 h-3" />
                   Local Downloaded Models
                 </label>
@@ -344,7 +344,7 @@ export default function NewBenchmark() {
                   list="local-models"
                   value={modelName} 
                   onChange={(e) => setModelName(e.target.value)} 
-                  className="w-full bg-[#0c0c0e] border border-emerald-900/30 rounded-lg p-2.5 text-sm font-mono focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-[#0c0c0e] border border-zinc-500 rounded-lg p-2.5 text-sm font-mono focus:outline-none focus:border-zinc-500"
                   placeholder="Search downloaded local models..."
                 />
                 <datalist id="local-models">
@@ -355,7 +355,7 @@ export default function NewBenchmark() {
               </div>
               
               <div className="space-y-1.5">
-                <label className="text-xs uppercase font-bold tracking-wider text-cyan-400 flex items-center gap-1">
+                <label className="text-xs uppercase font-bold tracking-wider text-white flex items-center gap-1">
                   <Activity className="w-3 h-3" />
                   Cloud API Models
                 </label>
@@ -364,7 +364,7 @@ export default function NewBenchmark() {
                   list="cloud-models"
                   value={modelName} 
                   onChange={(e) => setModelName(e.target.value)} 
-                  className="w-full bg-[#0c0c0e] border border-cyan-900/30 rounded-lg p-2.5 text-sm font-mono focus:outline-none focus:border-cyan-500"
+                  className="w-full bg-[#0c0c0e] border border-white rounded-lg p-2.5 text-sm font-mono focus:outline-none focus:border-white"
                   placeholder="Search cloud models..."
                 />
                 <datalist id="cloud-models">
@@ -380,7 +380,7 @@ export default function NewBenchmark() {
                   type="text" 
                   value={revision} 
                   onChange={(e) => setRevision(e.target.value)} 
-                  className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2.5 text-sm focus:outline-none focus:border-pink-500"
+                  className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2.5 text-sm focus:outline-none focus:border-zinc-500"
                 />
               </div>
 
@@ -390,7 +390,7 @@ export default function NewBenchmark() {
                   type="text" 
                   value={quantization} 
                   onChange={(e) => setQuantization(e.target.value)} 
-                  className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2.5 text-sm focus:outline-none focus:border-pink-500"
+                  className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2.5 text-sm focus:outline-none focus:border-zinc-500"
                 />
               </div>
 
@@ -400,7 +400,7 @@ export default function NewBenchmark() {
                   type="text" 
                   value={parametersSize} 
                   onChange={(e) => setParametersSize(e.target.value)} 
-                  className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2.5 text-sm focus:outline-none focus:border-pink-500"
+                  className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2.5 text-sm focus:outline-none focus:border-zinc-500"
                 />
               </div>
 
@@ -410,7 +410,7 @@ export default function NewBenchmark() {
                   type="number" 
                   value={contextLength} 
                   onChange={(e) => setContextLength(parseInt(e.target.value))} 
-                  className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2.5 text-sm focus:outline-none focus:border-pink-500"
+                  className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2.5 text-sm focus:outline-none focus:border-zinc-500"
                 />
               </div>
             </div>
@@ -420,7 +420,7 @@ export default function NewBenchmark() {
                 type="text" 
                 value={customHardwareProfile} 
                 onChange={(e) => setCustomHardwareProfile(e.target.value)} 
-                className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2.5 text-sm focus:outline-none focus:border-cyan-500 text-white"
+                className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2.5 text-sm focus:outline-none focus:border-white text-white"
                 placeholder="e.g., MacBook Pro M3 Max 128GB, or dual RTX 3090s"
               />
               <p className="text-xs text-zinc-500">Document the client/runner machine specs for the report (overrides automatic hardware detection).</p>
@@ -431,10 +431,10 @@ export default function NewBenchmark() {
 
         {/* STEP 2: PROVIDERS SELECTION */}
         {step === 2 && (
-          <div className="space-y-6">
+          <div className="space-y-2 flex-1 flex flex-col min-h-0 overflow-hidden">
             <div className="flex justify-between items-center">
               <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                <Server className="h-5 w-5 text-cyan-500" />
+                <Server className="h-5 w-5 text-white" />
                 Select Inference Runtimes
               </h3>
               <div className="w-64">
@@ -443,7 +443,7 @@ export default function NewBenchmark() {
                   placeholder="Search runtime/provider..."
                   value={searchProviderQuery} 
                   onChange={(e) => setSearchProviderQuery(e.target.value)} 
-                  className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg px-3 py-1.5 text-xs font-sans focus:outline-none focus:border-pink-500"
+                  className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg px-3 py-1.5 text-xs font-sans focus:outline-none focus:border-zinc-500"
                 />
               </div>
             </div>
@@ -457,13 +457,13 @@ export default function NewBenchmark() {
                 No active runtimes found matching "{searchProviderQuery}"
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[350px] overflow-y-auto pr-1">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-1 max-h-[350px] overflow-y-auto pr-1">
                 {filteredProviders.map((p) => (
                   <div 
                     key={p.id}
                     onClick={() => handleProviderToggle(p.id)}
                     className={`border p-4 rounded-xl cursor-pointer transition-all flex flex-col justify-between ${
-                      selectedProviders.includes(p.id) ? "border-pink-500 bg-[#0c0c0e]/10" : "border-zinc-800 hover:border-zinc-800 bg-black/30"
+                      selectedProviders.includes(p.id) ? "border-zinc-500 bg-[#0c0c0e]/10" : "border-zinc-800 hover:border-zinc-800 bg-black/30"
                     }`}
                   >
                     <div className="flex justify-between items-start">
@@ -477,15 +477,15 @@ export default function NewBenchmark() {
                         type="checkbox" 
                         checked={selectedProviders.includes(p.id)}
                         onChange={() => {}} // toggled on card click
-                        className="rounded border-cyan-900/50 text-cyan-400 focus:ring-cyan-500"
+                        className="rounded border-white text-white focus:ring-cyan-500"
                       />
                     </div>
                     
                     <div className="flex justify-between items-center text-xs mt-4 text-zinc-400 border-t border-zinc-800/80 pt-2 font-mono">
                       <span className="truncate max-w-[200px]" title={p.base_url}>{p.base_url}</span>
                       <span className={
-                        p.status === "ONLINE" ? "text-emerald-500 font-semibold" :
-                        p.status === "OFFLINE" ? "text-cyan-500 font-semibold" : "text-zinc-400 animate-pulse"
+                        p.status === "ONLINE" ? "text-zinc-100 font-semibold" :
+                        p.status === "OFFLINE" ? "text-white font-semibold" : "text-zinc-400 animate-pulse"
                       }>
                         ● {p.status || "Checking"}
                       </span>
@@ -499,13 +499,13 @@ export default function NewBenchmark() {
 
         {/* STEP 3: HYPERPARAMETERS & RATE SETTINGS */}
         {step === 3 && (
-          <div className="space-y-6">
+          <div className="space-y-2 flex-1 flex flex-col min-h-0 overflow-hidden">
             <h3 className="text-lg font-bold text-white flex items-center gap-2">
-              <TrendingUp className="h-5 w-5 text-cyan-500" />
+              <TrendingUp className="h-5 w-5 text-white" />
               Generation & Execution Settings
             </h3>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 flex-none">
               <div className="space-y-1">
                 <label className="text-xs uppercase font-bold tracking-wider text-zinc-400">Temperature</label>
                 <div className="flex items-center gap-3">
@@ -515,7 +515,7 @@ export default function NewBenchmark() {
                     onChange={(e) => setTemperature(parseFloat(e.target.value))} 
                     className="flex-1 accent-cyan-500"
                   />
-                  <span className="text-xs font-mono text-cyan-500 w-8">{temperature.toFixed(1)}</span>
+                  <span className="text-xs font-mono text-white w-8">{temperature.toFixed(1)}</span>
                 </div>
               </div>
 
@@ -528,7 +528,7 @@ export default function NewBenchmark() {
                     onChange={(e) => setTopP(parseFloat(e.target.value))} 
                     className="flex-1 accent-cyan-500"
                   />
-                  <span className="text-xs font-mono text-cyan-500 w-8">{topP.toFixed(2)}</span>
+                  <span className="text-xs font-mono text-white w-8">{topP.toFixed(2)}</span>
                 </div>
               </div>
 
@@ -538,7 +538,7 @@ export default function NewBenchmark() {
                   type="number" 
                   value={maxTokens} 
                   onChange={(e) => setMaxTokens(parseInt(e.target.value))} 
-                  className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2 text-sm focus:outline-none focus:border-pink-500"
+                  className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2 text-sm focus:outline-none focus:border-zinc-500"
                 />
               </div>
 
@@ -548,7 +548,7 @@ export default function NewBenchmark() {
                   type="number" 
                   value={seed} 
                   onChange={(e) => setSeed(parseInt(e.target.value))} 
-                  className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2 text-sm focus:outline-none focus:border-pink-500"
+                  className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2 text-sm focus:outline-none focus:border-zinc-500"
                 />
               </div>
 
@@ -557,7 +557,7 @@ export default function NewBenchmark() {
                 <select 
                   value={concurrency} 
                   onChange={(e) => setConcurrency(parseInt(e.target.value))}
-                  className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2 text-sm focus:outline-none focus:border-pink-500"
+                  className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2 text-sm focus:outline-none focus:border-zinc-500"
                 >
                   <option value={1}>1 (Sequential)</option>
                   <option value={2}>2</option>
@@ -574,7 +574,7 @@ export default function NewBenchmark() {
                   type="number" 
                   value={repetitions} 
                   onChange={(e) => setRepetitions(parseInt(e.target.value))} 
-                  className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2 text-sm focus:outline-none focus:border-pink-500"
+                  className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2 text-sm focus:outline-none focus:border-zinc-500"
                 />
               </div>
 
@@ -584,7 +584,7 @@ export default function NewBenchmark() {
                   type="number" 
                   value={warmups} 
                   onChange={(e) => setWarmups(parseInt(e.target.value))} 
-                  className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2 text-sm focus:outline-none focus:border-pink-500"
+                  className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2 text-sm focus:outline-none focus:border-zinc-500"
                 />
               </div>
 
@@ -594,14 +594,14 @@ export default function NewBenchmark() {
                   id="identical"
                   checked={useIdenticalSettings}
                   onChange={(e) => setUseIdenticalSettings(e.target.checked)}
-                  className="rounded border-cyan-900/50 text-cyan-400 focus:ring-cyan-500"
+                  className="rounded border-white text-white focus:ring-cyan-500"
                 />
                 <label htmlFor="identical" className="text-xs font-semibold text-zinc-400 cursor-pointer">
                   Use identical settings across all providers
                 </label>
               </div>
               <div 
-                className="flex items-center gap-4 mt-6 p-4 bg-pink-950/30 border-2 border-pink-500/60 rounded-xl shadow-[0_0_15px_rgba(236,72,153,0.2)] hover:shadow-[0_0_25px_rgba(236,72,153,0.4)] transition-all cursor-pointer"
+                className="flex items-center gap-1 mt-6 p-4 bg-zinc-900 border-2 border-zinc-500 rounded-xl shadow-[0_0_15px_rgba(236,72,153,0.2)] hover:shadow-[0_0_25px_rgba(236,72,153,0.4)] transition-all cursor-pointer"
                 onClick={() => setSequentialExecution(!sequentialExecution)}
               >
                 <input 
@@ -612,12 +612,12 @@ export default function NewBenchmark() {
                     e.stopPropagation();
                     setSequentialExecution(e.target.checked);
                   }}
-                  className="w-7 h-7 rounded border-pink-500 text-pink-500 focus:ring-pink-500 focus:ring-offset-2 focus:ring-offset-black cursor-pointer"
+                  className="w-7 h-7 rounded border-zinc-500 text-zinc-300 focus:ring-pink-500 focus:ring-offset-2 focus:ring-offset-black cursor-pointer"
                   onClick={(e) => e.stopPropagation()}
                 />
-                <label htmlFor="sequential" className="text-lg font-bold text-pink-100 cursor-pointer select-none flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                <label htmlFor="sequential" className="text-lg font-bold text-zinc-300 cursor-pointer select-none flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
                   Run sequentially 
-                  <span className="text-pink-400 font-medium text-sm">(Saves VRAM, prevents GPU crashes)</span>
+                  <span className="text-zinc-300 font-medium text-sm">(Saves VRAM, prevents GPU crashes)</span>
                 </label>
               </div>
             </div>
@@ -626,9 +626,9 @@ export default function NewBenchmark() {
 
         {/* STEP 4: PROMPT SUITES SELECTION */}
         {step === 4 && (
-          <div className="space-y-6">
+          <div className="space-y-2 flex-1 flex flex-col min-h-0 overflow-hidden">
             <h3 className="text-lg font-bold text-white flex items-center gap-2">
-              <BookOpen className="h-5 w-5 text-cyan-500" />
+              <BookOpen className="h-5 w-5 text-white" />
               Select Test Prompt Suites
             </h3>
 
@@ -638,7 +638,7 @@ export default function NewBenchmark() {
                   key={s.id}
                   onClick={() => handleSuiteToggle(s.id)}
                   className={`border p-4 rounded-xl cursor-pointer transition-all flex justify-between items-center ${
-                    selectedSuites.includes(s.id) ? "border-pink-500 bg-[#0c0c0e]/10" : "border-zinc-800 hover:border-zinc-800 bg-black/30"
+                    selectedSuites.includes(s.id) ? "border-zinc-500 bg-[#0c0c0e]/10" : "border-zinc-800 hover:border-zinc-800 bg-black/30"
                   }`}
                 >
                   <div className="space-y-1">
@@ -649,7 +649,7 @@ export default function NewBenchmark() {
                     type="checkbox" 
                     checked={selectedSuites.includes(s.id)}
                     onChange={() => {}} // toggled on container click
-                    className="rounded border-cyan-900/50 text-cyan-400 focus:ring-cyan-500"
+                    className="rounded border-white text-white focus:ring-cyan-500"
                   />
                 </div>
               ))}
@@ -659,20 +659,20 @@ export default function NewBenchmark() {
 
         {/* STEP 5: LLM JUDGE */}
         {step === 5 && (
-          <div className="space-y-6">
+          <div className="space-y-2 flex-1 flex flex-col min-h-0 overflow-hidden">
             <h3 className="text-lg font-bold text-white flex items-center gap-2">
-              <ShieldAlert className="h-5 w-5 text-cyan-500" />
+              <ShieldAlert className="h-5 w-5 text-white" />
               Configure LLM-as-a-Judge Evaluation (Optional)
             </h3>
 
-            <div className="bg-transparent border border-zinc-800 rounded-xl p-5 space-y-4">
+            <div className="bg-transparent border border-zinc-800 rounded-xl p-5 space-y-1">
               <div className="flex items-center gap-3">
                 <input 
                   type="checkbox" 
                   id="enable_judge"
                   checked={useJudge}
                   onChange={(e) => setUseJudge(e.target.checked)}
-                  className="rounded border-cyan-900/50 text-cyan-400 focus:ring-cyan-500"
+                  className="rounded border-white text-white focus:ring-cyan-500"
                 />
                 <label htmlFor="enable_judge" className="text-sm font-semibold text-white cursor-pointer">
                   Activate automatic semantic LLM Judge scoring
@@ -680,13 +680,13 @@ export default function NewBenchmark() {
               </div>
 
               {useJudge && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-zinc-800/80">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-1 pt-4 border-t border-zinc-800/80">
                   <div className="space-y-1.5">
                     <label className="text-xs uppercase font-bold tracking-wider text-zinc-400">Judge Provider</label>
                     <select 
                       value={judgeProviderId || ""} 
                       onChange={(e) => setJudgeProviderId(parseInt(e.target.value))}
-                      className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2 text-sm focus:outline-none focus:border-pink-500"
+                      className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2 text-sm focus:outline-none focus:border-zinc-500"
                     >
                       <option value="">Select Provider...</option>
                       {providers.map(p => (
@@ -702,7 +702,7 @@ export default function NewBenchmark() {
                       placeholder="e.g. qwen3-8b"
                       value={judgeModelName} 
                       onChange={(e) => setJudgeModelName(e.target.value)} 
-                      className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2 text-sm font-mono focus:outline-none focus:border-pink-500"
+                      className="w-full bg-[#0c0c0e] border border-zinc-800 rounded-lg p-2 text-sm font-mono focus:outline-none focus:border-zinc-500"
                     />
                   </div>
                 </div>
@@ -723,7 +723,7 @@ export default function NewBenchmark() {
               <button 
                 type="button" 
                 onClick={() => setStep(prev => prev - 1)}
-                className="flex items-center gap-2 px-4 py-2 border border-zinc-800 bg-black text-zinc-400 hover:text-white rounded-lg text-sm transition-colors"
+                className="flex items-center gap-2 px-2 py-2 border border-zinc-800 bg-black text-zinc-400 hover:text-white rounded-lg text-sm transition-colors"
               >
                 <ChevronLeft className="h-4 w-4" />
                 Previous
@@ -735,7 +735,7 @@ export default function NewBenchmark() {
               <button 
                 type="button" 
                 onClick={() => setStep(prev => prev + 1)}
-                className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold bg-cyan-500 text-zinc-950 shadow-sm border-0 font-medium  hover:bg-cyan-400 transition-colors transition-colors"
+                className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold bg-white text-black text-zinc-950 shadow-sm border-0 font-medium  hover:bg-zinc-800 transition-colors transition-colors"
               >
                 Next Step
                 <ChevronRight className="h-4 w-4" />
@@ -744,7 +744,7 @@ export default function NewBenchmark() {
               <button 
                 type="button" 
                 onClick={handleLaunch}
-                className="flex items-center gap-2 px-6 py-2 rounded-lg text-sm font-bold bg-emerald-500  hover:bg-emerald-400 transition-colors"
+                className="flex items-center gap-2 px-2 py-2 rounded-lg text-sm font-bold bg-zinc-700  hover:bg-zinc-900 transition-colors"
               >
                 <Play className="h-4 w-4 fill-white " />
                 Execute Benchmark

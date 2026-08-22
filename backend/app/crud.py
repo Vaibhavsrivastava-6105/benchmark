@@ -286,4 +286,50 @@ def seed_database(db: Session):
         db.add(p4)
         db.commit()
 
+    # 4. Context Scaling Suite (512 to 8192 tokens)
+    if not db.query(models.PromptSuite).filter(models.PromptSuite.name == "Context Scaling (512 - 8k tokens)").first():
+        suite_ctx = models.PromptSuite(
+            name="Context Scaling (512 - 8k tokens)",
+            description="Measures TTFT degradation and KV-cache VRAM scaling across synthetic context windows."
+        )
+        db.add(suite_ctx)
+        db.commit()
+        
+        ctx_512 = "Repeat the word 'ALPHA' exactly three times at the end of your response. Here is context: " + ("The quick brown fox jumps over the lazy dog. " * 35) + " Now output your answer."
+        ctx_1024 = "Repeat the word 'BETA' exactly three times at the end of your response. Here is context: " + ("In computer science, benchmarking evaluates execution speed. " * 65) + " Now output your answer."
+        ctx_2048 = "Repeat the word 'GAMMA' exactly three times at the end of your response. Here is context: " + ("Distributed systems require fault-tolerant consensus algorithms like Raft and Paxos. " * 120) + " Now output your answer."
+        ctx_4096 = "Repeat the word 'DELTA' exactly three times at the end of your response. Here is context: " + ("Large language models utilize transformer self-attention mechanisms with quadratic memory complexity. " * 220) + " Now output your answer."
+        
+        p_512 = models.Prompt(suite_id=suite_ctx.id, category="Context 512", prompt=ctx_512, system_prompt="Answer precisely.", expected_answer="ALPHA ALPHA ALPHA", evaluator="contains", difficulty="easy", tags="context,512t")
+        p_1024 = models.Prompt(suite_id=suite_ctx.id, category="Context 1024", prompt=ctx_1024, system_prompt="Answer precisely.", expected_answer="BETA BETA BETA", evaluator="contains", difficulty="medium", tags="context,1024t")
+        p_2048 = models.Prompt(suite_id=suite_ctx.id, category="Context 2048", prompt=ctx_2048, system_prompt="Answer precisely.", expected_answer="GAMMA GAMMA GAMMA", evaluator="contains", difficulty="hard", tags="context,2048t")
+        p_4096 = models.Prompt(suite_id=suite_ctx.id, category="Context 4096", prompt=ctx_4096, system_prompt="Answer precisely.", expected_answer="DELTA DELTA DELTA", evaluator="contains", difficulty="expert", tags="context,4096t")
+        db.add_all([p_512, p_1024, p_2048, p_4096])
+        db.commit()
+
+    # 5. GSM8k & Multi-step Math Suite
+    if not db.query(models.PromptSuite).filter(models.PromptSuite.name == "GSM8k Mathematical Reasoning").first():
+        suite_gsm = models.PromptSuite(
+            name="GSM8k Mathematical Reasoning",
+            description="Tests multi-step arithmetic, logic chains, and exact numerical problem solving."
+        )
+        db.add(suite_gsm)
+        db.commit()
+        
+        m1 = models.Prompt(
+            suite_id=suite_gsm.id, category="Math",
+            prompt="Janet buys 3 packs of golf balls with 12 balls in each pack. She loses 4 balls on the course. How many golf balls does she have left? Show your reasoning step by step and give the final answer in format: 'Answer: X'",
+            system_prompt="You are a precise math solver.",
+            expected_answer="32", evaluator="contains", difficulty="easy", tags="math,gsm8k"
+        )
+        m2 = models.Prompt(
+            suite_id=suite_gsm.id, category="Math",
+            prompt="A store sells apples for $2 each and oranges for $3 each. Maria buys 5 apples and 4 oranges. She pays with a $50 bill. How much change does she receive? Show steps and conclude with 'Answer: $X'",
+            system_prompt="You are a precise math solver.",
+            expected_answer="28", evaluator="contains", difficulty="medium", tags="math,gsm8k"
+        )
+        db.add_all([m1, m2])
+        db.commit()
+
+
 

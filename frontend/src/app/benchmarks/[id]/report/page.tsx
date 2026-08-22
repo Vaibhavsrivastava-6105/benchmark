@@ -27,6 +27,38 @@ export default function ReportPage() {
   const [aiRec, setAiRec] = useState<string | null>(null);
   const [generatingRec, setGeneratingRec] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [failureData, setFailureData] = useState<any>(null);
+  const [selectedFailureCat, setSelectedFailureCat] = useState<string>("ALL");
+  const [expandedFailureId, setExpandedFailureId] = useState<number | null>(null);
+  const [allRequests, setAllRequests] = useState<any[]>([]);
+  const [humanEvals, setHumanEvals] = useState<any>(null);
+  const [selectedHumanFilter, setSelectedHumanFilter] = useState<string>("ALL");
+  const [activeRequestForEval, setActiveRequestForEval] = useState<any>(null);
+  const [evalFeedback, setEvalFeedback] = useState("");
+
+  const submitHumanEval = async (requestId: number, rating: string) => {
+    try {
+      const res = await fetch("/api/evaluations/human", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          request_id: requestId,
+          human_rating: rating,
+          human_feedback: evalFeedback || null
+        })
+      });
+      if (res.ok) {
+        setAllRequests(prev => prev.map(r => r.request_id === requestId ? { ...r, human_rating: rating, human_feedback: evalFeedback } : r));
+        setActiveRequestForEval(null);
+        setEvalFeedback("");
+        fetch(`/api/benchmarks/${id}/human-eval`).then(r => r.ok ? r.json() : null).then(d => {
+          if (d) setHumanEvals(d);
+        }).catch(console.error);
+      }
+    } catch (e) {
+      console.error("Failed to submit human evaluation:", e);
+    }
+  };
 
 
   const generateAiRecommendation = async () => {
@@ -55,6 +87,15 @@ export default function ReportPage() {
         if (runRes.ok) setRun(await runRes.json());
         if (reqRes.ok) setRequests(await reqRes.json());
         if (telRes.ok) setTelemetry(await telRes.json());
+        fetch(`/api/benchmarks/${id}/failures`).then(r => r.ok ? r.json() : null).then(d => {
+          if (d) setFailureData(d);
+        }).catch(console.error);
+        fetch(`/api/benchmarks/${id}/requests`).then(r => r.ok ? r.json() : null).then(d => {
+          if (d) setAllRequests(d.requests);
+        }).catch(console.error);
+        fetch(`/api/benchmarks/${id}/human-eval`).then(r => r.ok ? r.json() : null).then(d => {
+          if (d) setHumanEvals(d);
+        }).catch(console.error);
       } catch (e) {
         console.error(e);
       } finally {
@@ -65,7 +106,7 @@ export default function ReportPage() {
   }, [id]);
 
   if (loading) return <div className="p-8 text-white">Generating automated report...</div>;
-  if (!run) return <div className="p-8 text-red-500">Run not found.</div>;
+  if (!run) return <div className="p-8 text-zinc-500">Run not found.</div>;
 
   // Aggregate stats per provider
   const providerStats = new Map<string, any>();
@@ -145,6 +186,15 @@ export default function ReportPage() {
 
   const evalMode = run.hardware_info?.benchmark_mode || "standard";
 
+  const downloadFile = (format: string, ext: string) => {
+    const link = document.createElement("a");
+    link.href = `/api/benchmarks/${id}/export?format=${format}`;
+    link.download = `benchmark_run_${id}.${ext}`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const exportToCSV = () => {
     if (!summary || summary.length === 0) return;
     
@@ -182,18 +232,30 @@ export default function ReportPage() {
         >
           <ArrowLeft className="h-4 w-4" /> Back to Dashboard
         </button>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-2">
           <button 
-            onClick={exportToCSV}
-            className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-emerald-700 transition-colors"
+            onClick={() => downloadFile("csv", "csv")}
+            className="flex items-center gap-1.5 bg-black text-white px-3 py-1.5 rounded-lg text-xs font-mono font-semibold border border-zinc-800 hover:bg-zinc-800 transition-colors"
           >
-            <Download className="h-4 w-4" /> Export CSV
+            <Download className="h-3.5 w-3.5" /> CSV
+          </button>
+          <button 
+            onClick={() => downloadFile("json", "json")}
+            className="flex items-center gap-1.5 bg-black text-white px-3 py-1.5 rounded-lg text-xs font-mono font-semibold border border-zinc-800 hover:bg-zinc-800 transition-colors"
+          >
+            <FileText className="h-3.5 w-3.5" /> JSON
+          </button>
+          <button 
+            onClick={() => downloadFile("markdown", "md")}
+            className="flex items-center gap-1.5 bg-black text-white px-3 py-1.5 rounded-lg text-xs font-mono font-semibold border border-zinc-800 hover:bg-zinc-800 transition-colors"
+          >
+            <Download className="h-3.5 w-3.5" /> Markdown
           </button>
           <button 
             onClick={() => window.print()}
-            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+            className="flex items-center gap-1.5 bg-white text-black px-3 py-1.5 rounded-lg text-xs font-mono font-semibold border border-zinc-300 hover:bg-zinc-100 transition-colors shadow-sm"
           >
-            <Printer className="h-4 w-4" /> Print Report
+            <Printer className="h-3.5 w-3.5" /> Print / PDF
           </button>
         </div>
       </div>
@@ -229,11 +291,11 @@ export default function ReportPage() {
         </h2>
         <div className="space-y-3 text-sm text-gray-800 leading-relaxed">
           {aiRec ? (
-             <div className="p-6 bg-purple-50 border border-purple-200 rounded-xl prose prose-sm max-w-none text-purple-900" dangerouslySetInnerHTML={{__html: aiRec.replace(/\n/g, "<br/>")}}></div>
+             <div className="p-6 bg-zinc-800 border border-purple-200 rounded-xl prose prose-sm max-w-none text-zinc-300" dangerouslySetInnerHTML={{__html: aiRec.replace(/\n/g, "<br/>")}}></div>
           ) : (
              <div className="flex flex-col items-center justify-center p-8 bg-gray-50 border border-gray-200 rounded-xl">
                 <p className="text-gray-500 mb-4 text-center">Use your local LLM judge to analyze this benchmark data and synthesize a deployment recommendation.</p>
-                <button onClick={generateAiRecommendation} disabled={generatingRec} className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded shadow disabled:opacity-50 flex items-center gap-2">
+                <button onClick={generateAiRecommendation} disabled={generatingRec} className="px-4 py-2 bg-zinc-800 hover:bg-zinc-800 text-white font-bold rounded shadow disabled:opacity-50 flex items-center gap-2">
                   {generatingRec ? "Analyzing Data..." : "Generate AI Recommendation"}
                 </button>
              </div>
@@ -247,13 +309,13 @@ export default function ReportPage() {
           {summary.map(p => (
             <div key={p.name} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
                <h4 className="font-bold text-gray-800 mb-2">{p.name}</h4>
-               <div className="space-y-2">
+               <div className="space-y-2 flex-1 flex flex-col min-h-0 overflow-hidden">
                  {Object.entries(p.categories).map(([cat, data]: [string, any]) => {
                    const avg = data.scores.length > 0 ? data.scores.reduce((a:number,b:number)=>a+b,0)/data.scores.length : 0;
                    return (
                      <div key={cat} className="flex justify-between items-center text-sm">
                        <span className="text-gray-600">{cat}</span>
-                       <span className={`font-bold ${avg >= 0.8 ? 'text-green-600' : avg >= 0.5 ? 'text-yellow-600' : 'text-red-600'}`}>
+                       <span className={`font-bold ${avg >= 0.8 ? 'text-green-600' : avg >= 0.5 ? 'text-zinc-400' : 'text-zinc-500'}`}>
                          {(avg * 100).toFixed(1)}%
                        </span>
                      </div>
@@ -287,7 +349,7 @@ export default function ReportPage() {
                   <td className="px-4 py-3 uppercase text-xs">{p.setup_complexity}</td>
                   <td className="px-4 py-3 font-mono text-xs">{p.peakGpu.toFixed(1)}% / {p.peakRam.toFixed(1)}%</td>
                   <td className="px-4 py-3">
-                    <span className={p.failed > 0 ? "text-red-600" : "text-green-600"}>
+                    <span className={p.failed > 0 ? "text-zinc-500" : "text-green-600"}>
                       {p.completed + p.failed > 0 ? ((p.completed / (p.completed + p.failed)) * 100).toFixed(1) : 0}%
                     </span>
                   </td>
@@ -305,9 +367,257 @@ export default function ReportPage() {
         </div>
       </section>
       
+      {/* Human Evaluation & Annotation Queue */}
+      <section className="space-y-4 pt-6 page-break-before">
+        <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-bold text-gray-900">Human Evaluation & Annotation Queue</h2>
+          </div>
+          {humanEvals && (
+            <span className="text-xs font-mono bg-zinc-900 text-white px-2.5 py-1 rounded-full font-semibold border border-zinc-700">
+              Human-Judge Alignment: {humanEvals.agreement_rate_pct}% ({humanEvals.total_reviewed} Reviewed)
+            </span>
+          )}
+        </div>
+
+        {allRequests.length > 0 && (
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                onClick={() => setSelectedHumanFilter("ALL")}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold font-mono transition-colors border ${
+                  selectedHumanFilter === "ALL" ? "bg-black text-white border-black" : "bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-100"
+                }`}
+              >
+                UNREVIEWED ({allRequests.filter(r => !r.human_rating).length})
+              </button>
+              <button
+                onClick={() => setSelectedHumanFilter("REVIEWED")}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold font-mono transition-colors border ${
+                  selectedHumanFilter === "REVIEWED" ? "bg-black text-white border-black" : "bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-100"
+                }`}
+              >
+                REVIEWED ({humanEvals?.total_reviewed || 0})
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {allRequests
+                .filter(r => selectedHumanFilter === "ALL" ? !r.human_rating : !!r.human_rating)
+                .slice(0, 50) // Limit to 50 for performance
+                .map((r: any) => {
+                  const isEvalActive = activeRequestForEval?.request_id === r.request_id;
+                  return (
+                    <div key={r.request_id} className="border border-zinc-200 rounded-xl bg-white overflow-hidden shadow-sm">
+                      <div 
+                        className="p-3 bg-zinc-50/70 hover:bg-zinc-100/80 flex justify-between items-center transition-colors"
+                      >
+                        <div className="flex items-center gap-2">
+                          {r.human_rating ? (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-blue-100 text-blue-800 border border-blue-200">
+                              {r.human_rating.replace("_", " ")}
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-zinc-200 text-zinc-600">
+                              UNRATED
+                            </span>
+                          )}
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase ${r.auto_passed ? 'bg-green-100 text-green-800 border-green-200' : 'bg-red-100 text-red-800 border-red-200'}`}>
+                            AI: {r.auto_passed ? "PASS" : "FAIL"}
+                          </span>
+                          <span className="text-xs font-bold text-gray-900 font-mono ml-2">
+                            {r.model_name}
+                          </span>
+                          <span className="text-xs text-gray-500 truncate max-w-[250px]">
+                            - {r.prompt_text}
+                          </span>
+                        </div>
+                        <button 
+                          onClick={() => {
+                            if (isEvalActive) setActiveRequestForEval(null);
+                            else { setActiveRequestForEval(r); setEvalFeedback(r.human_feedback || ""); }
+                          }}
+                          className="text-xs text-blue-600 font-medium px-2 py-1 hover:bg-blue-50 rounded"
+                        >
+                          {isEvalActive ? "Cancel" : "Grade"}
+                        </button>
+                      </div>
+
+                      {isEvalActive && (
+                        <div className="p-4 border-t border-zinc-200 space-y-3 bg-white text-xs">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                            <div className="space-y-1.5 bg-zinc-50 p-3 rounded-lg border border-zinc-200">
+                              <span className="font-bold text-gray-700 text-[10px] uppercase tracking-wider block">Input Prompt</span>
+                              <p className="text-gray-900 whitespace-pre-wrap font-sans">{r.prompt_text}</p>
+                              {r.expected_answer && (
+                                <div className="mt-2 pt-2 border-t border-zinc-200">
+                                  <span className="font-bold text-gray-700 text-[10px] uppercase tracking-wider block">Expected Ground Truth</span>
+                                  <p className="text-gray-800 font-mono mt-0.5">{r.expected_answer}</p>
+                                </div>
+                              )}
+                            </div>
+                            <div className="space-y-1.5 bg-zinc-900 text-zinc-100 p-3 rounded-lg border border-zinc-800">
+                              <span className="font-bold text-zinc-400 text-[10px] uppercase tracking-wider block">Actual Model Response</span>
+                              <pre className="font-mono text-[11px] whitespace-pre-wrap overflow-x-auto max-h-48 text-zinc-200">
+                                {r.actual_response || "(Empty output)"}
+                              </pre>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col gap-2 bg-blue-50 p-3 rounded-lg border border-blue-100">
+                            <label className="text-[10px] font-bold text-blue-900 uppercase tracking-wider">Your Annotation</label>
+                            <input 
+                              type="text" 
+                              placeholder="Optional feedback..."
+                              value={evalFeedback}
+                              onChange={(e) => setEvalFeedback(e.target.value)}
+                              className="w-full text-xs px-2 py-1.5 border border-blue-200 rounded text-blue-900 mb-2"
+                            />
+                            <div className="flex gap-2">
+                              <button onClick={() => submitHumanEval(r.request_id, "CORRECT")} className="px-3 py-1.5 bg-green-600 text-white font-semibold rounded hover:bg-green-700 transition">?? Correct</button>
+                              <button onClick={() => submitHumanEval(r.request_id, "INCORRECT")} className="px-3 py-1.5 bg-red-600 text-white font-semibold rounded hover:bg-red-700 transition">?? Incorrect</button>
+                              <button onClick={() => submitHumanEval(r.request_id, "PARTIALLY_CORRECT")} className="px-3 py-1.5 bg-yellow-500 text-white font-semibold rounded hover:bg-yellow-600 transition">?? Partial</button>
+                              <button onClick={() => submitHumanEval(r.request_id, "HALLUCINATED")} className="px-3 py-1.5 bg-purple-600 text-white font-semibold rounded hover:bg-purple-700 transition">?? Hallucinated</button>
+                              <button onClick={() => submitHumanEval(r.request_id, "POOR_FORMAT")} className="px-3 py-1.5 bg-zinc-600 text-white font-semibold rounded hover:bg-zinc-700 transition">?? Bad Format</button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {allRequests.filter(r => selectedHumanFilter === "ALL" ? !r.human_rating : !!r.human_rating).length > 50 && (
+                   <div className="text-center text-xs text-zinc-500 py-2">Showing first 50 items.</div>
+                )}
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* Failure Analysis & Error Categorization Section */}
+      <section className="space-y-4 pt-6">
+        <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5 text-zinc-900" />
+            <h2 className="text-xl font-bold text-gray-900">Failure Analysis & Error Categorization</h2>
+          </div>
+          {failureData && (
+            <span className="text-xs font-mono bg-zinc-100 text-zinc-800 px-2.5 py-1 rounded-full font-semibold border border-zinc-200">
+              {failureData.failed_requests} Failed / {failureData.total_requests} Total ({failureData.pass_rate_pct}% Pass Rate)
+            </span>
+          )}
+        </div>
+
+        {failureData && failureData.failed_requests === 0 ? (
+          <div className="p-6 bg-zinc-50 border border-zinc-200 rounded-xl text-center text-zinc-700 text-sm font-medium">
+            Perfect Execution! 100% of benchmark evaluation requests passed all quality, schema, and latency checks.
+          </div>
+        ) : failureData ? (
+          <div className="space-y-3">
+            {/* Category Filter Chips */}
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                onClick={() => setSelectedFailureCat("ALL")}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold font-mono transition-colors border ${
+                  selectedFailureCat === "ALL" 
+                    ? "bg-black text-white border-black" 
+                    : "bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-100"
+                }`}
+              >
+                ALL ({failureData.failed_requests})
+              </button>
+              {Object.entries(failureData.category_counts || {}).filter(([_, count]: [string, any]) => count > 0).map(([cat, count]: [string, any]) => (
+                <button
+                  key={cat}
+                  onClick={() => setSelectedFailureCat(cat)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold font-mono transition-colors border ${
+                    selectedFailureCat === cat 
+                      ? "bg-black text-white border-black" 
+                    : "bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-100"
+                }`}
+              >
+                {cat.replace("_", " ")} ({count})
+              </button>
+              ))}
+            </div>
+
+            {/* Failure Items List */}
+            <div className="space-y-2">
+              {failureData.failures
+                .filter((f: any) => selectedFailureCat === "ALL" || f.failure_category === selectedFailureCat)
+                .map((f: any) => {
+                  const isExpanded = expandedFailureId === f.request_id;
+                  return (
+                    <div key={f.request_id} className="border border-zinc-200 rounded-xl bg-white overflow-hidden shadow-sm">
+                      <div 
+                        onClick={() => setExpandedFailureId(isExpanded ? null : f.request_id)}
+                        className="p-3 bg-zinc-50/70 hover:bg-zinc-100/80 cursor-pointer flex justify-between items-center transition-colors"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-zinc-900 text-white">
+                            {f.failure_category}
+                          </span>
+                          <span className="text-xs font-bold text-gray-900 font-mono">
+                            {f.provider_name} ({f.model_name})
+                          </span>
+                          <span className="text-xs text-gray-500 truncate max-w-[250px]">
+                            - {f.prompt_text}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          {f.latency_ms && (
+                            <span className="text-[11px] font-mono text-gray-500">
+                              {f.latency_ms.toFixed(0)} ms
+                            </span>
+                          )}
+                          <span className="text-xs text-blue-600 font-medium">
+                            {isExpanded ? "Collapse" : "Drill Down"}
+                          </span>
+                        </div>
+                      </div>
+
+                      {isExpanded && (
+                        <div className="p-4 border-t border-zinc-200 space-y-3 bg-white text-xs">
+                          {/* Reason / Diagnosis */}
+                          <div className="p-2.5 bg-red-50/50 border border-red-200 rounded-lg">
+                            <span className="font-bold text-red-900 uppercase text-[10px] tracking-wider block">Diagnosis / Failure Reason</span>
+                            <p className="text-red-800 font-mono mt-0.5">{f.reasoning}</p>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {/* Prompt & Expected */}
+                            <div className="space-y-1.5 bg-zinc-50 p-3 rounded-lg border border-zinc-200">
+                              <span className="font-bold text-gray-700 text-[10px] uppercase tracking-wider block">Input Prompt</span>
+                              <p className="text-gray-900 whitespace-pre-wrap font-sans">{f.prompt_text}</p>
+                              {f.expected_answer && (
+                                <div className="mt-2 pt-2 border-t border-zinc-200">
+                                  <span className="font-bold text-gray-700 text-[10px] uppercase tracking-wider block">Expected Ground Truth</span>
+                                  <p className="text-gray-800 font-mono mt-0.5">{f.expected_answer}</p>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Actual Model Output */}
+                            <div className="space-y-1.5 bg-zinc-900 text-zinc-100 p-3 rounded-lg border border-zinc-800">
+                              <span className="font-bold text-zinc-400 text-[10px] uppercase tracking-wider block">Actual Model Response</span>
+                              <pre className="font-mono text-[11px] whitespace-pre-wrap overflow-x-auto max-h-48 text-zinc-200">
+                                {f.actual_response || "(Empty output)"}
+                              </pre>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        ) : null}
+      </section>
+
       <section className="space-y-4 pt-6">
         <h2 className="text-2xl font-bold border-b border-gray-200 pb-2 flex items-center gap-2">
-          <AlertTriangle className="h-6 w-6 text-amber-500" /> Known Benchmark Limitations
+          <AlertTriangle className="h-6 w-6 text-zinc-400" /> Known Benchmark Limitations
         </h2>
         <ul className="list-disc pl-5 text-sm text-gray-600 space-y-2">
           <li><strong>Network Overhead:</strong> Remote API providers (OpenAI, Together) include network transit latency in TTFT measurements, which disadvantages them compared to local loopback APIs like vLLM.</li>

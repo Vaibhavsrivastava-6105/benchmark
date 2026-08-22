@@ -13,7 +13,7 @@ export default function HardwarePage() {
     
     const fetchHardware = async () => {
       try {
-        const url = (typeof API_BASE !== "undefined" ? API_BASE : "http://localhost:8001") + "/api/hardware";
+        const url = "/api/hardware";
         const res = await fetch(url);
         if (res.ok) {
           const data = await res.json();
@@ -37,18 +37,18 @@ export default function HardwarePage() {
   }, []);
 
   if (!hardware && !error) {
-    return <div className="p-8 text-zinc-400">Detecting system hardware...</div>;
+    return <div className="p-2 text-zinc-400">Detecting system hardware...</div>;
   }
 
   const { static: stat, live } = hardware || {};
   const gpus = live?.gpu_utilization || [];
 
   return (
-    <div className="p-8 space-y-8 max-w-6xl">
+    <div className="p-2 space-y-2 max-w-6xl">
       <div className="flex justify-between items-center pb-4 border-b border-zinc-800">
         <div>
-          <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-            <Cpu className="h-8 w-8 text-cyan-500" />
+          <h1 className="text-sm font-bold text-white flex items-center gap-3">
+            <Cpu className="h-8 w-8 text-white" />
             Hardware Telemetry
           </h1>
           <p className="text-zinc-400 mt-2">Real-time system resource monitoring for the BenchLab server.</p>
@@ -56,7 +56,7 @@ export default function HardwarePage() {
       </div>
 
       {error && (
-        <div className="bg-red-900/30 border border-red-500/50 p-4 rounded-lg flex items-center gap-3 text-red-400">
+        <div className="bg-zinc-800 border border-zinc-700 p-4 rounded-lg flex items-center gap-3 text-zinc-500">
           <AlertTriangle className="h-5 w-5" />
           <p>{error}</p>
         </div>
@@ -65,11 +65,11 @@ export default function HardwarePage() {
       {hardware && stat && live && (
         <>
           {/* Static System Info */}
-          <section className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-6">
-            <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
+          <section className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-2">
+            <h2 className="text-sm font-bold text-white mb-6 flex items-center gap-2">
               <Server className="h-5 w-5 text-zinc-400" /> Host System Information
             </h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
               <div className="space-y-1">
                 <p className="text-xs text-zinc-500 uppercase font-bold tracking-wider">OS</p>
                 <p className="text-sm font-mono text-white">{stat.os}</p>
@@ -88,16 +88,16 @@ export default function HardwarePage() {
               </div>
             </div>
             {stat.demo_mode && (
-              <div className="mt-4 p-3 bg-amber-900/20 border border-amber-900/50 text-amber-500 text-sm rounded flex items-center gap-2">
+              <div className="mt-4 p-3 bg-zinc-800 border border-zinc-600 text-zinc-400 text-sm rounded flex items-center gap-2">
                 <AlertTriangle className="h-4 w-4" /> Running in DEMO_MODE (Simulated Telemetry)
               </div>
             )}
           </section>
 
           {/* Live Host Metrics */}
-          <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <section className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {/* CPU */}
-            <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-6">
+            <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-2">
               <h3 className="text-sm text-zinc-400 uppercase font-bold tracking-wider mb-4 flex items-center gap-2">
                 <Activity className="h-4 w-4" /> CPU Utilization
               </h3>
@@ -107,14 +107,14 @@ export default function HardwarePage() {
               </div>
               <div className="w-full bg-zinc-900 rounded-full h-2.5 mt-4 overflow-hidden">
                 <div 
-                  className="bg-cyan-500 h-2.5 rounded-full transition-all duration-300" 
+                  className="bg-white text-black h-2.5 rounded-full transition-all duration-300" 
                   style={{ width: `${live.cpu_utilization}%` }}
                 ></div>
               </div>
             </div>
 
             {/* RAM */}
-            <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-6">
+            <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-2">
               <h3 className="text-sm text-zinc-400 uppercase font-bold tracking-wider mb-4 flex items-center gap-2">
                 <Activity className="h-4 w-4" /> System RAM
               </h3>
@@ -124,7 +124,7 @@ export default function HardwarePage() {
               </div>
               <div className="w-full bg-zinc-900 rounded-full h-2.5 mt-4 overflow-hidden">
                 <div 
-                  className="bg-purple-500 h-2.5 rounded-full transition-all duration-300" 
+                  className="bg-zinc-800 h-2.5 rounded-full transition-all duration-300" 
                   style={{ width: `${(live.ram_used_bytes / live.ram_total_bytes) * 100}%` }}
                 ></div>
               </div>
@@ -133,22 +133,22 @@ export default function HardwarePage() {
 
           {/* Live GPUs */}
           {gpus.length > 0 && (
-            <section className="space-y-4">
-              <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+            <section className="space-y-1">
+              <h2 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
                 <Server className="h-5 w-5 text-zinc-400" /> GPU Accelerators
               </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 {gpus.map((gpu: any, i: number) => {
                   const memUsedGb = gpu.vram_used / 1024 / 1024 / 1024;
                   const memTotalGb = gpu.vram_total / 1024 / 1024 / 1024;
                   const memPct = (memUsedGb / memTotalGb) * 100;
                   
                   return (
-                    <div key={i} className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-6 space-y-6">
+                    <div key={i} className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-2 space-y-2">
                       <div className="flex justify-between items-start">
                         <div>
                           <div className="flex items-center gap-2 mb-1">
-                            <span className="bg-emerald-900/30 text-emerald-500 text-xs font-bold px-2 py-0.5 rounded uppercase">GPU {gpu.index}</span>
+                            <span className="bg-zinc-900 text-zinc-100 text-xs font-bold px-2 py-0.5 rounded uppercase">GPU {gpu.index}</span>
                           </div>
                           <h3 className="text-lg font-bold text-white">{gpu.name}</h3>
                         </div>
@@ -162,7 +162,7 @@ export default function HardwarePage() {
                         </div>
                       </div>
 
-                      <div className="space-y-4">
+                      <div className="space-y-1">
                         {/* GPU Compute */}
                         <div>
                           <div className="flex justify-between text-sm mb-1">
@@ -171,7 +171,7 @@ export default function HardwarePage() {
                           </div>
                           <div className="w-full bg-zinc-900 rounded-full h-2 overflow-hidden">
                             <div 
-                              className="bg-emerald-500 h-2 rounded-full transition-all duration-300" 
+                              className="bg-zinc-700 h-2 rounded-full transition-all duration-300" 
                               style={{ width: `${gpu.utilization}%` }}
                             ></div>
                           </div>

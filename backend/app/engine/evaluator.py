@@ -2,10 +2,21 @@ import re
 import json
 import logging
 import asyncio
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, List
 from jsonschema import validate, ValidationError
 
 logger = logging.getLogger(__name__)
+
+class FailureCategory:
+    NONE = "NONE"
+    INVALID_JSON = "INVALID_JSON"
+    WRONG_ANSWER = "WRONG_ANSWER"
+    HALLUCINATION = "HALLUCINATION"
+    CODE_ERROR = "CODE_ERROR"
+    TIMEOUT = "TIMEOUT"
+    PROVIDER_ERROR = "PROVIDER_ERROR"
+    ASSERTION_FAILED = "ASSERTION_FAILED"
+
 
 class ResponseEvaluator:
     @staticmethod
@@ -14,233 +25,274 @@ class ResponseEvaluator:
         response_text: str,
         expected_answer: Optional[str] = None,
         schema_definition: Optional[Dict[str, Any]] = None,
-        judge_client_callback = None  # Async callback to call judge LLM if needed
+        assertions: Optional[List[Dict[str, Any]]] = None
     ) -> Tuple[float, bool, Dict[str, Any]]:
-        """
-        Evaluates the response.
-        Returns: (score, passed, details_dict)
-        """
         response_text = response_text.strip() if response_text else ""
         
-        # 1. Exact Match
+        if not response_text:
+            return 0.0, False, {
+                "error": "Empty response received from inference engine.",
+                "failure_category": FailureCategory.PROVIDER_ERROR,
+                "reasoning": "Inference server returned 0 tokens."
+            }
+
+        if assertions and len(assertions) > 0:
+            return ResponseEvaluator.evaluate_assertions(response_text, assertions)
+
         if evaluator_type == "exact_match":
             if not expected_answer:
-                return 1.0, True, {"info": "No expected answer provided, defaults to pass."}
-            passed = response_text.strip() == expected_answer.strip()
+                return 1.0, True, {"info": "No expected answer provided.", "failure_category": FailureCategory.NONE}
+            passed = response_text.strip().lower() == expected_answer.strip().lower()
             score = 1.0 if passed else 0.0
-            return score, passed, {"expected": expected_answer, "actual": response_text}
+            category = FailureCategory.NONE if passed else FailureCategory.WRONG_ANSWER
+            reasoning = "Response matches ground truth." if passed else f"Expected '{expected_answer}' but received '{response_text[:100]}...'"
+            return score, passed, {
+                "expected": expected_answer,
+                "actual": response_text,
+                "failure_category": category,
+                "reasoning": reasoning
+            }
 
-        # 2. Contains
         elif evaluator_type == "contains":
             if not expected_answer:
-                return 1.0, True, {"info": "No expected answer provided, defaults to pass."}
+                return 1.0, True, {"info": "No expected answer provided.", "failure_category": FailureCategory.NONE}
             passed = expected_answer.lower() in response_text.lower()
             score = 1.0 if passed else 0.0
-            return score, passed, {"expected_substring": expected_answer, "found": passed}
+            category = FailureCategory.NONE if passed else FailureCategory.WRONG_ANSWER
+            reasoning = f"Found keyword '{expected_answer}'." if passed else f"Missing required keyword '{expected_answer}'."
+            return score, passed, {
+                "expected_substring": expected_answer,
+                "found": passed,
+                "failure_category": category,
+                "reasoning": reasoning
+            }
 
-        # 3. Regex
         elif evaluator_type == "regex":
             if not expected_answer:
-                return 1.0, True, {"info": "No regex pattern provided, defaults to pass."}
+                return 1.0, True, {"info": "No pattern provided.", "failure_category": FailureCategory.NONE}
             try:
                 match = re.search(expected_answer, response_text, re.IGNORECASE | re.DOTALL)
                 passed = match is not None
                 score = 1.0 if passed else 0.0
-                return score, passed, {"pattern": expected_answer, "matched": passed}
+                category = FailureCategory.NONE if passed else FailureCategory.WRONG_ANSWER
+                reasoning = f"Matched pattern '{expected_answer}'." if passed else f"Failed to match pattern '{expected_answer}'."
+                return score, passed, {
+                    "pattern": expected_answer,
+                    "matched": passed,
+                    "failure_category": category,
+                    "reasoning": reasoning
+                }
             except Exception as e:
-                return 0.0, False, {"error": f"Invalid regex pattern: {str(e)}"}
+                return 0.0, False, {"error": str(e), "failure_category": FailureCategory.ASSERTION_FAILED, "reasoning": str(e)}
 
-        # 4. Numeric
         elif evaluator_type == "numeric":
             if not expected_answer:
-                return 1.0, True, {"info": "No expected numeric value provided, defaults to pass."}
-            
-            # Find first float or number in response
-            numbers = re.findall(r"[-+]?\d*\.\d+|\d+", response_text)
+                return 1.0, True, {"info": "No numeric value provided.", "failure_category": FailureCategory.NONE}
+            numbers = re.findall(r"[-+]?\d*\.?\d+", response_text)
             if not numbers:
-                return 0.0, False, {"error": "No numbers found in response text."}
-            
+                return 0.0, False, {
+                    "error": "No numeric values found.",
+                    "failure_category": FailureCategory.WRONG_ANSWER,
+                    "reasoning": f"Expected numeric {expected_answer}, but none parsed."
+                }
             try:
                 actual_val = float(numbers[-1])
                 expected_val = float(expected_answer)
-                passed = abs(actual_val - expected_val) < 1e-5
+                passed = abs(actual_val - expected_val) < 1e-4
                 score = 1.0 if passed else 0.0
-                return score, passed, {"expected": expected_val, "actual": actual_val, "difference": abs(actual_val - expected_val)}
+                category = FailureCategory.NONE if passed else FailureCategory.WRONG_ANSWER
+                reasoning = f"Parsed answer {actual_val} matches {expected_val}." if passed else f"Parsed value {actual_val} does not match {expected_val}."
+                return score, passed, {
+                    "expected": expected_val,
+                    "actual": actual_val,
+                    "difference": abs(actual_val - expected_val),
+                    "failure_category": category,
+                    "reasoning": reasoning
+                }
             except Exception as e:
-                return 0.0, False, {"error": f"Failed numeric parse: {str(e)}"}
+                return 0.0, False, {"error": str(e), "failure_category": FailureCategory.WRONG_ANSWER, "reasoning": str(e)}
 
-        # 5. JSON Schema Validation
         elif evaluator_type == "json_schema":
-            metrics = {
-                "valid_json": False,
-                "schema_compliance": False,
-                "malformed_json": False,
-                "extra_text": False,
-            }
-            
-            # Check if there is extra text outside JSON
             json_start = response_text.find("{")
             json_end = response_text.rfind("}")
-            
             if json_start == -1 or json_end == -1:
-                metrics["malformed_json"] = True
-                return 0.0, False, {"error": "Could not locate JSON curly braces.", **metrics}
-            
-            if json_start > 0 or json_end < len(response_text) - 1:
-                metrics["extra_text"] = True
-
+                return 0.0, False, {
+                    "error": "Could not locate JSON curly braces.",
+                    "failure_category": FailureCategory.INVALID_JSON,
+                    "reasoning": "Output missing JSON curly delimiters."
+                }
             json_substring = response_text[json_start:json_end+1]
             try:
                 parsed_json = json.loads(json_substring)
-                metrics["valid_json"] = True
             except json.JSONDecodeError as jde:
-                metrics["malformed_json"] = True
-                return 0.0, False, {"error": f"JSON syntax error: {jde.msg} at line {jde.lineno} col {jde.colno}", **metrics}
-
+                return 0.0, False, {
+                    "error": f"JSON syntax error: {jde.msg}",
+                    "failure_category": FailureCategory.INVALID_JSON,
+                    "reasoning": f"Malformed JSON syntax: {jde.msg}"
+                }
             if not schema_definition:
-                # If no schema defined, simple valid JSON is a success
-                metrics["schema_compliance"] = True
-                return 1.0, True, {"info": "JSON parsed successfully, no schema defined.", **metrics}
-
+                return 1.0, True, {
+                    "info": "Valid JSON structure.",
+                    "failure_category": FailureCategory.NONE,
+                    "reasoning": "Valid JSON object."
+                }
             try:
                 validate(instance=parsed_json, schema=schema_definition)
-                metrics["schema_compliance"] = True
-                score = 0.9 if metrics["extra_text"] else 1.0  # Slight penalty for conversational wrapping
-                return score, True, {"info": "JSON conforms to schema.", **metrics}
+                return 1.0, True, {
+                    "info": "JSON strictly conforms to schema.",
+                    "failure_category": FailureCategory.NONE,
+                    "reasoning": "Schema validation passed."
+                }
             except ValidationError as ve:
-                return 0.5, False, {
-                    "error": f"JSON schema non-compliance: {ve.message} in path {list(ve.absolute_path)}",
-                    **metrics
+                path_str = " -> ".join(str(p) for p in ve.absolute_path) or "root"
+                return 0.3, False, {
+                    "error": f"Schema non-compliance at '{path_str}': {ve.message}",
+                    "failure_category": FailureCategory.INVALID_JSON,
+                    "reasoning": f"Missing or invalid field at '{path_str}': {ve.message}"
                 }
 
-        # 6. Code Sandbox Test (Task 2.3)
         elif evaluator_type == "code_test":
-            code_blocks = re.findall(r"```python\s*(.*?)\s*```", response_text, re.DOTALL)
+            code_blocks = re.findall(r"```python\s*(.*?)\s*```", response_text, re.DOTALL) or re.findall(r"```\s*(.*?)\s*```", response_text, re.DOTALL)
             if not code_blocks:
-                code_blocks = re.findall(r"```\s*(.*?)\s*```", response_text, re.DOTALL)
-                if not code_blocks:
-                    return 0.0, False, {"error": "No markdown code block found in response."}
-            
+                return 0.0, False, {
+                    "error": "No markdown code block found.",
+                    "failure_category": FailureCategory.CODE_ERROR,
+                    "reasoning": "Model failed to output code in markdown block."
+                }
             code_content = code_blocks[0]
-            
-            from app.engine.sandbox import is_docker_available, run_code_in_sandbox
-            if is_docker_available():
-                try:
-                    success, stdout, stderr = _run_sync(run_code_in_sandbox(code_content))
-                    score = 1.0 if success else 0.2
-                    return score, success, {"sandbox": True, "stdout": stdout, "stderr": stderr}
-                except Exception as e:
-                    return 0.0, False, {"error": f"Docker sandbox execution error: {str(e)}"}
-            else:
-                try:
-                    compile(code_content, "<string>", "exec")
-                    return 1.0, True, {"info": "Python syntax validation succeeded. Docker was unavailable, fell back to compile check.", "sandbox": False, "syntax_check": True}
-                except SyntaxError as se:
-                    return 0.2, False, {"error": f"Python compilation failed: {se.msg} at line {se.lineno}", "sandbox": False, "syntax_check": False}
+            try:
+                compile(code_content, "<string>", "exec")
+                return 1.0, True, {
+                    "info": "Python syntax validation passed.",
+                    "failure_category": FailureCategory.NONE,
+                    "reasoning": "Code syntax compiles without syntax errors."
+                }
+            except SyntaxError as se:
+                return 0.2, False, {
+                    "error": f"SyntaxError: {se.msg} at line {se.lineno}",
+                    "failure_category": FailureCategory.CODE_ERROR,
+                    "reasoning": f"Compilation failed: {se.msg}"
+                }
 
-        # 7. Semantic Similarity (Task 2.4)
         elif evaluator_type == "semantic_similarity":
             if not expected_answer:
-                return 1.0, True, {"info": "No expected reference answer provided, defaults to pass."}
-            try:
-                similarity = _calculate_cosine_similarity(response_text, expected_answer)
-                passed = similarity >= 0.70
-                return similarity, passed, {"similarity_score": similarity, "expected": expected_answer, "actual": response_text}
-            except Exception as e:
-                return 0.0, False, {"error": f"Semantic similarity grading failed: {str(e)}"}
+                return 1.0, True, {"info": "No reference answer provided.", "failure_category": FailureCategory.NONE}
+            sim_score = _calculate_token_f1(response_text, expected_answer)
+            passed = sim_score >= 0.70
+            category = FailureCategory.NONE if passed else FailureCategory.WRONG_ANSWER
+            reasoning = f"Token overlap score {sim_score:.2f} >= 0.70." if passed else f"Token overlap score {sim_score:.2f} < 0.70."
+            return sim_score, passed, {
+                "similarity_score": round(sim_score, 3),
+                "expected": expected_answer,
+                "actual": response_text,
+                "failure_category": category,
+                "reasoning": reasoning
+            }
 
-        # Default fallback
         else:
-            return 1.0, True, {"info": f"Unknown evaluator type '{evaluator_type}'. Assumed pass."}
+            return 1.0, True, {"info": f"Assumed pass for {evaluator_type}", "failure_category": FailureCategory.NONE}
+
+    @staticmethod
+    def evaluate_assertions(response_text: str, assertions: List[Dict[str, Any]]) -> Tuple[float, bool, Dict[str, Any]]:
+        results = []
+        all_passed = True
+        total_score = 0.0
+        for a in assertions:
+            a_type = a.get("type", "contains")
+            a_val = a.get("value")
+            a_schema = a.get("schema")
+            score, passed, details = ResponseEvaluator.evaluate(
+                evaluator_type=a_type,
+                response_text=response_text,
+                expected_answer=a_val,
+                schema_definition=a_schema
+            )
+            if not passed:
+                all_passed = False
+            total_score += score
+            results.append({"assertion_type": a_type, "passed": passed, "score": score, "details": details})
+        avg_score = round(total_score / len(assertions), 2) if assertions else 1.0
+        return avg_score, all_passed, {
+            "assertion_results": results,
+            "passed_count": sum(1 for r in results if r["passed"]),
+            "total_assertions": len(assertions),
+            "failure_category": FailureCategory.NONE if all_passed else FailureCategory.ASSERTION_FAILED,
+            "reasoning": f"Passed {sum(1 for r in results if r['passed'])}/{len(assertions)} assertions."
+        }
 
     @staticmethod
     async def evaluate_llm_judge(
         response_text: str,
         prompt_text: str,
         expected_answer: Optional[str],
-        judge_provider_client,  # Instance of InferenceProvider
+        judge_provider_client,
         judge_model_name: str
     ) -> Tuple[float, bool, Dict[str, Any]]:
-        """
-        Executes LLM-as-a-judge evaluation by prompt template mapping.
-        """
         judge_system = (
-            "You are an impartial expert evaluator scoring another AI assistant's response. "
-            "Your output must be a single JSON object containing 'score' (a float from 0.0 to 1.0) "
-            "and a 'reasoning' (a brief explanation of your score). "
-            "For example:\n"
-            "{\n  \"score\": 0.9,\n  \"reasoning\": \"The response is highly accurate and logical, containing only small formatting errors.\"\n}"
+            "You are an expert AI evaluator judging the output of an LLM.\n"
+            "Evaluate the response on: 1) Factual Correctness, 2) Instruction Following, 3) Hallucination Freedom.\n"
+            "Output strictly valid JSON with:\n"
+            "- 'score': float between 0.0 and 1.0\n"
+            "- 'reasoning': concise 1-2 sentence explanation\n"
+            "- 'is_hallucinated': boolean\n"
+            "- 'failure_category': one of ['NONE', 'WRONG_ANSWER', 'HALLUCINATION', 'INVALID_JSON']\n"
         )
-        
         judge_user = (
-            f"User Prompt: \"{prompt_text}\"\n\n"
-            f"Expected Reference Answer (if any): \"{expected_answer or 'N/A'}\"\n\n"
-            f"Assistant Response to Evaluate: \"{response_text}\"\n\n"
-            "Please grade the response based on accuracy, completeness, and formatting."
+            f"Prompt: \"{prompt_text}\"\n\n"
+            f"Expected Reference: \"{expected_answer or 'None'}\"\n\n"
+            f"Model Response: \"{response_text}\"\n\n"
+            "Evaluate and return strictly the JSON object."
         )
-
         try:
-            # We request with standard options
             result = await judge_provider_client.generate(
                 model=judge_model_name,
                 prompt=judge_user,
                 system_prompt=judge_system,
                 options={"temperature": 0.0, "max_tokens": 256}
             )
-            
             if result.error:
-                return 0.0, False, {"error": f"LLM Judge API failure: {result.error}"}
-                
-            # Parse response
+                return 0.0, False, {
+                    "error": f"Judge error: {result.error}",
+                    "failure_category": FailureCategory.PROVIDER_ERROR,
+                    "reasoning": f"Judge provider returned error: {result.error}"
+                }
             text = result.text.strip()
             json_start = text.find("{")
             json_end = text.rfind("}")
             if json_start != -1 and json_end != -1:
                 text = text[json_start:json_end+1]
-                
             data = json.loads(text)
             score = float(data.get("score", 0.0))
-            reasoning = data.get("reasoning", "No explanation provided.")
+            reasoning = data.get("reasoning", "Evaluated.")
+            is_hallucinated = bool(data.get("is_hallucinated", False))
+            category = data.get("failure_category", FailureCategory.NONE if score >= 0.70 else FailureCategory.WRONG_ANSWER)
+            if is_hallucinated:
+                category = FailureCategory.HALLUCINATION
             passed = score >= 0.70
-            
             return score, passed, {
                 "judge_model": judge_model_name,
                 "judge_provider": judge_provider_client.name,
                 "score": score,
                 "reasoning": reasoning,
-                "raw_judge_response": result.text
+                "is_hallucinated": is_hallucinated,
+                "failure_category": category if not passed else FailureCategory.NONE
             }
         except Exception as e:
-            return 0.0, False, {"error": f"LLM Judge scoring exception: {str(e)}"}
+            return 0.0, False, {
+                "error": str(e),
+                "failure_category": FailureCategory.PROVIDER_ERROR,
+                "reasoning": str(e)
+            }
 
-def _run_sync(coro):
-    import asyncio
-    from concurrent.futures import ThreadPoolExecutor
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(coro)
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(asyncio.run, coro)
-        return future.result()
 
-_embedding_model = None
-
-def _calculate_cosine_similarity(text1: str, text2: str) -> float:
-    global _embedding_model
-    if _embedding_model is None:
-        from sentence_transformers import SentenceTransformer
-        _embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
-    
-    embeddings = _embedding_model.encode([text1, text2])
-    import numpy as np
-    emb1 = embeddings[0]
-    emb2 = embeddings[1]
-    
-    dot_product = np.dot(emb1, emb2)
-    norm_emb1 = np.linalg.norm(emb1)
-    norm_emb2 = np.linalg.norm(emb2)
-    
-    if norm_emb1 == 0 or norm_emb2 == 0:
+def _calculate_token_f1(actual: str, expected: str) -> float:
+    actual_tokens = set(re.findall(r"\w+", actual.lower()))
+    expected_tokens = set(re.findall(r"\w+", expected.lower()))
+    if not actual_tokens or not expected_tokens:
+        return 1.0 if actual.strip() == expected.strip() else 0.0
+    common = actual_tokens.intersection(expected_tokens)
+    if not common:
         return 0.0
-    return float(dot_product / (norm_emb1 * norm_emb2))
+    precision = len(common) / len(actual_tokens)
+    recall = len(common) / len(expected_tokens)
+    return (2 * precision * recall) / (precision + recall)

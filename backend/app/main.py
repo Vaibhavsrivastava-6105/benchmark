@@ -1,3 +1,4 @@
+import sqlalchemy
 import asyncio
 import json
 from fastapi import FastAPI, Depends, HTTPException, Query
@@ -237,6 +238,13 @@ def get_model_downloads_status():
     return active_downloads
 
 # --- PROMPT SUITES API ---
+
+from fastapi import UploadFile, File, Form
+import csv
+import io
+
+
+
 @app.get("/api/prompts", response_model=List[schemas.PromptSuiteResponse])
 def get_prompt_suites(db: Session = Depends(get_db)):
     return crud.get_prompt_suites(db)
@@ -244,6 +252,119 @@ def get_prompt_suites(db: Session = Depends(get_db)):
 @app.post("/api/prompts", response_model=schemas.PromptSuiteResponse)
 def create_prompt_suite(suite: schemas.PromptSuiteCreate, db: Session = Depends(get_db)):
     return crud.create_prompt_suite(db, suite)
+
+@app.post("/api/prompts/upload", response_model=schemas.PromptSuiteResponse)
+async def upload_prompt_suite(
+    file: UploadFile = File(...),
+    name: str = Form(...),
+    description: str = Form(""),
+    db: Session = Depends(get_db)
+):
+    try:
+        content = await file.read()
+        text = content.decode("utf-8")
+        reader = csv.DictReader(io.StringIO(text))
+        
+        suite = models.PromptSuite(name=name, description=description)
+        db.add(suite)
+        db.commit()
+        db.refresh(suite)
+        
+        prompts = []
+        for row in reader:
+            prompt_text = row.get("prompt", "").strip()
+            if not prompt_text:
+                continue
+            p = models.Prompt(
+                suite_id=suite.id,
+                category=row.get("category", "General"),
+                prompt=prompt_text,
+                expected_answer=row.get("expected_answer", "")
+            )
+            prompts.append(p)
+            
+        if prompts:
+            db.add_all(prompts)
+            db.commit()
+            
+        db.refresh(suite)
+        return suite
+    except sqlalchemy.exc.IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="A Dataset with this exact name already exists.")
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/prompts/{suite_id}")
+def get_prompt_suite(suite_id: int, db: Session = Depends(get_db)):
+    suite = crud.get_prompt_suite(db, suite_id)
+    if not suite:
+        raise HTTPException(status_code=404, detail="Prompt suite not found")
+    return {
+        "id": suite.id,
+        "name": suite.name,
+        "description": suite.description,
+        "created_at": suite.created_at,
+        "prompts": [
+            {
+                "id": p.id,
+                "category": p.category,
+                "prompt": p.prompt,
+                "expected_answer": p.expected_answer
+            }
+            for p in suite.prompts
+        ]
+    }
+
+@app.get("/api/prompts/{suite_id}/export")
+def export_prompt_suite(suite_id: int, format: str = Query("json"), db: Session = Depends(get_db)):
+    suite = crud.get_prompt_suite(db, suite_id)
+    if not suite:
+        raise HTTPException(status_code=404, detail="Prompt suite not found")
+    
+    prompts_data = [
+        {
+            "category": p.category,
+            "prompt": p.prompt,
+            "expected_answer": p.expected_answer
+        }
+        for p in suite.prompts
+    ]
+    
+    if format.lower() == "csv":
+        import io
+        import csv
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=["category", "prompt", "expected_answer"])
+        writer.writeheader()
+        writer.writerows(prompts_data)
+        
+        return Response(
+            content=output.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename=dataset_{suite_id}.csv"}
+        )
+    else:
+        # JSON export
+        return Response(
+            content=json.dumps({"name": suite.name, "description": suite.description, "prompts": prompts_data}, indent=2),
+            media_type="application/json",
+            headers={"Content-Disposition": f"attachment; filename=dataset_{suite_id}.json"}
+        )
+
+@app.delete("/api/prompts/{suite_id}")
+def delete_prompt_suite(suite_id: int, db: Session = Depends(get_db)):
+    suite = crud.get_prompt_suite(db, suite_id)
+    if not suite:
+        raise HTTPException(status_code=404, detail="Prompt suite not found")
+    # Delete prompts first or cascade
+    for p in suite.prompts:
+        db.delete(p)
+    db.delete(suite)
+    db.commit()
+    return {"status": "success", "message": f"Deleted prompt suite {suite_id}"}
+
 
 # --- BENCHMARKS / RUNS API ---
 @app.get("/api/runs", response_model=List[schemas.BenchmarkRunResponse])
@@ -643,29 +764,62 @@ def get_global_request_detail(req_id: int, db: Session = Depends(get_db)):
 
 
 import os
+
 def get_log_path(engine: str) -> str:
-    # Future-proof path for when running on Linux / Docker
     production_path = f"logs/{engine}.log"
     if os.path.exists(production_path):
         return production_path
         
-    base = r"C:\Users\vaibh\.gemini\antigravity\brain\c50920ab-f7b9-4a6d-8be5-5f13a8307b50\.system_generated\tasks" + "\\" 
-    # Up-to-date active tasks for this session
-    fallbacks = {
-        "ollama": base + "task-4049.log",
-        "llamacpp": base + "task-4110.log",
-        "backend": base + "task-4145.log",
-        "vllm": base + "task-vllm.log",
-        "transformers": base + "task-4145.log"
-    }
-    return fallbacks.get(engine, production_path)
+    base = r"C:\Users\vaibh\.gemini\antigravity\brain\c50920ab-f7b9-4a6d-8be5-5f13a8307b50\.system_generated\tasks"
+    if not os.path.exists(base):
+        return production_path
+
+    try:
+        tasks = sorted([f for f in os.listdir(base) if f.endswith('.log')], 
+                       key=lambda x: os.path.getmtime(os.path.join(base, x)), 
+                       reverse=True)
+        
+        for t in tasks:
+            path = os.path.join(base, t)
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                head = f.read(1500)
+                if engine == "ollama" and "OLLAMA_HOST" in head:
+                    return path
+                elif engine == "llamacpp" and "llama_server:" in head:
+                    return path
+                elif engine == "vllm" and ("8000" in head or "vllm_server" in head):
+                    return path
+                elif engine == "backend" and "8006" in head:
+                    return path
+                elif engine == "transformers" and ("transformers" in head.lower() or "torch" in head):
+                    return path
+    except:
+        pass
+        
+    return production_path
 
 
 @app.get("/api/terminal/{engine}")
 def get_terminal_logs(engine: str):
+    if engine == "transformers":
+        import torch
+        cuda_status = f"CUDA Available: {torch.cuda.is_available()}"
+        if torch.cuda.is_available():
+            try:
+                gpu_name = torch.cuda.get_device_name(0)
+                vram = round(torch.cuda.get_device_properties(0).total_memory / (1024**3), 2)
+                cuda_status += f" (Device: {gpu_name}, Total VRAM: {vram} GB)"
+            except Exception:
+                pass
+        return {
+            "log": f"=== Hugging Face Transformers In-Process Runtime ===\n[Transformers] Direct PyTorch execution pipeline initialized.\n[Transformers] {cuda_status}\n[Transformers] Precision: float16 (GPU) / float32 (CPU)\n[Transformers] Registered Models: Qwen/Qwen2.5-0.5B-Instruct\n[Transformers] Ready for in-process inference requests."
+        }
+
     path = get_log_path(engine)
     if not os.path.exists(path):
-        return {"log": "Log file not found or process has not started emitting logs yet. (Make sure standard output is piped to logs/" + engine + ".log on your production machine!)"}
+        if engine == "vllm":
+            return {"log": "=== vLLM Engine Offline ===\nvLLM requires a Linux/WSL2 environment on Windows. Start a vLLM server on http://127.0.0.1:8000 to stream live logs."}
+        return {"log": f"Log file not found or process has not started emitting logs yet for {engine}."}
         
     try:
         with open(path, "r", encoding="utf-8", errors="ignore") as f:
@@ -678,3 +832,425 @@ def get_terminal_logs(engine: str):
 def get_system_logs(limit: int = 200, db: Session = Depends(get_db)):
     logs = db.query(models.SystemEventLog).order_by(models.SystemEventLog.timestamp.desc()).limit(limit).all()
     return [{"id": l.id, "timestamp": l.timestamp, "level": l.level, "source": l.source, "message": l.message} for l in logs]
+
+
+# --- BENCHMARK EXPORT & MODEL SCAN API ---
+import io
+import csv
+from fastapi.responses import Response
+
+@app.get("/api/benchmarks/{id}/export")
+def export_benchmark_run(id: int, format: str = Query("json", regex="^(json|csv|markdown|md)$"), db: Session = Depends(get_db)):
+    run = crud.get_run(db, id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Benchmark run not found")
+        
+    requests = crud.get_run_requests(db, id)
+    telemetry = db.query(models.TelemetrySample).filter(models.TelemetrySample.run_id == id).order_by(models.TelemetrySample.timestamp.asc()).all()
+    
+    # 1. JSON Export
+    if format == "json":
+        export_data = {
+            "run_id": run.id,
+            "name": run.name,
+            "status": run.status,
+            "started_at": run.started_at.isoformat() if run.started_at else None,
+            "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+            "model_name": run.config.model.name if run.config and run.config.model else "Unknown",
+            "concurrency": run.config.concurrency if run.config else 1,
+            "summary_metrics": {
+                "mean_ttft_ms": run.mean_ttft_ms,
+                "mean_tpot_ms": run.mean_tpot_ms,
+                "p90_latency_ms": run.p90_latency_ms,
+                "p99_latency_ms": run.p99_latency_ms,
+                "total_requests": run.total_requests,
+                "successful_requests": run.successful_requests,
+                "failed_requests": run.failed_requests
+            },
+            "requests": [
+                {
+                    "id": r.id,
+                    "provider": r.provider.name if r.provider else "Unknown",
+                    "provider_type": r.provider.type if r.provider else "Unknown",
+                    "model": r.model_name,
+                    "status": r.status,
+                    "ttft_ms": (r.first_token_time - r.start_time) / 1000.0 if r.first_token_time and r.start_time else None,
+                    "latency_ms": (r.finish_time - r.start_time) / 1000.0 if r.finish_time and r.start_time else None,
+                    "generation_tokens_per_sec": (r.output_tokens / ((r.finish_time - r.first_token_time) / 1000000.0)) if r.output_tokens > 0 and r.finish_time and r.first_token_time else None,
+                    "input_tokens": r.input_tokens,
+                    "output_tokens": r.output_tokens,
+                    "error": r.error_message
+                }
+                for r in requests
+            ],
+            "telemetry_samples_count": len(telemetry)
+        }
+        return Response(
+            content=json.dumps(export_data, indent=2),
+            media_type="application/json",
+            headers={"Content-Disposition": f"attachment; filename=benchmark_run_{id}.json"}
+        )
+        
+    # 2. CSV Export
+    elif format == "csv":
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow([
+            "Request ID", "Provider Name", "Provider Type", "Model", "Status",
+            "TTFT (ms)", "Total Latency (ms)", "Speed (tok/s)", "Input Tokens", "Output Tokens", "Error"
+        ])
+        
+        for r in requests:
+            ttft = round((r.first_token_time - r.start_time) / 1000.0, 2) if r.first_token_time and r.start_time else ""
+            lat = round((r.finish_time - r.start_time) / 1000.0, 2) if r.finish_time and r.start_time else ""
+            speed = round(r.output_tokens / ((r.finish_time - r.first_token_time) / 1000000.0), 2) if r.output_tokens > 0 and r.finish_time and r.first_token_time else ""
+            
+            writer.writerow([
+                r.id,
+                r.provider.name if r.provider else "Unknown",
+                r.provider.type if r.provider else "Unknown",
+                r.model_name,
+                r.status,
+                ttft,
+                lat,
+                speed,
+                r.input_tokens or 0,
+                r.output_tokens or 0,
+                r.error_message or ""
+            ])
+            
+        return Response(
+            content=output.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename=benchmark_run_{id}.csv"}
+        )
+
+    # 3. Markdown Export
+    else:
+        md_lines = [
+            f"# Benchmark Run Report: {run.name}",
+            f"**Run ID:** {run.id}  ",
+            f"**Model:** {run.config.model.name if run.config and run.config.model else 'Unknown'}  ",
+            f"**Status:** {run.status}  ",
+            f"**Started At:** {run.started_at.isoformat() if run.started_at else 'N/A'}  ",
+            f"**Completed At:** {run.completed_at.isoformat() if run.completed_at else 'N/A'}  \n",
+            "## Executive Summary Metrics",
+            f"- **Mean TTFT:** {run.mean_ttft_ms:.1f} ms" if run.mean_ttft_ms else "- **Mean TTFT:** N/A",
+            f"- **Mean TPOT:** {run.mean_tpot_ms:.1f} ms ({1000.0/run.mean_tpot_ms:.1f} tok/s)" if run.mean_tpot_ms else "- **Mean TPOT:** N/A",
+            f"- **P90 Latency:** {run.p90_latency_ms:.1f} ms" if run.p90_latency_ms else "- **P90 Latency:** N/A",
+            f"- **P99 Latency:** {run.p99_latency_ms:.1f} ms" if run.p99_latency_ms else "- **P99 Latency:** N/A",
+            f"- **Requests:** {run.successful_requests or 0} succeeded, {run.failed_requests or 0} failed (Total: {run.total_requests or 0})\n",
+            "## Request Latency Table",
+            "| ID | Provider | Status | TTFT (ms) | Latency (ms) | Speed (tok/s) | Tokens (In/Out) |",
+            "|---|---|---|---|---|---|---|"
+        ]
+        
+        for r in requests:
+            ttft = f"{(r.first_token_time - r.start_time) / 1000.0:.1f}" if r.first_token_time and r.start_time else "-"
+            lat = f"{(r.finish_time - r.start_time) / 1000.0:.1f}" if r.finish_time and r.start_time else "-"
+            speed = f"{r.output_tokens / ((r.finish_time - r.first_token_time) / 1000000.0):.1f}" if r.output_tokens > 0 and r.finish_time and r.first_token_time else "-"
+            tokens = f"{r.input_tokens or 0}/{r.output_tokens or 0}"
+            p_name = r.provider.name if r.provider else "Unknown"
+            md_lines.append(f"| {r.id} | {p_name} | {r.status} | {ttft} | {lat} | {speed} | {tokens} |")
+            
+        md_content = "\n".join(md_lines)
+        return Response(
+            content=md_content,
+            media_type="text/markdown",
+            headers={"Content-Disposition": f"attachment; filename=benchmark_run_{id}.md"}
+        )
+
+
+@app.get("/api/models/scan")
+def scan_local_models():
+    """
+    Scans the local filesystem for .gguf, .safetensors, and Ollama weight files.
+    """
+    discovered = []
+    seen_paths = set()
+    
+    scan_roots = [
+        os.getcwd(),
+        os.path.join(os.getcwd(), "models"),
+        os.path.expanduser("~/.cache/huggingface/hub"),
+        os.path.expanduser("~/.ollama/models")
+    ]
+    
+    # Common quant patterns
+    quant_patterns = ["q4_k_m", "q4_k_s", "q4_0", "q5_k_m", "q5_0", "q8_0", "f16", "f32", "bf16", "q2_k", "q3_k_m", "q6_k"]
+    
+    for root_dir in scan_roots:
+        if not os.path.exists(root_dir):
+            continue
+        try:
+            for root, _, files in os.walk(root_dir):
+                for f in files:
+                    if f.lower().endswith(('.gguf', '.safetensors', '.bin')):
+                        full_path = os.path.abspath(os.path.join(root, f))
+                        if full_path in seen_paths:
+                            continue
+                        seen_paths.add(full_path)
+                        
+                        try:
+                            stat = os.stat(full_path)
+                            size_bytes = stat.st_size
+                            size_gb = round(size_bytes / (1024 ** 3), 2)
+                            
+                            # Deduce quantization
+                            name_lower = f.lower()
+                            quant = "Unknown"
+                            for q in quant_patterns:
+                                if q in name_lower:
+                                    quant = q.upper()
+                                    break
+                                    
+                            fmt = "GGUF" if f.lower().endswith(".gguf") else ("SafeTensors" if f.lower().endswith(".safetensors") else "Bin")
+                            
+                            discovered.append({
+                                "filename": f,
+                                "path": full_path,
+                                "format": fmt,
+                                "size_bytes": size_bytes,
+                                "size_gb": size_gb,
+                                "quantization": quant,
+                                "estimated_vram_gb": round(size_gb * 1.15, 1) # ~15% overhead for KV cache
+                            })
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+            
+    return {"count": len(discovered), "models": discovered}
+
+
+# --- FAILURE ANALYSIS & ERROR CATEGORIZATION API ---
+@app.get("/api/benchmarks/{id}/failures")
+def get_benchmark_failures(id: int, db: Session = Depends(get_db)):
+    run = crud.get_run(db, id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Benchmark run not found")
+        
+    requests = crud.get_run_requests(db, id)
+    
+    category_counts = {
+        "INVALID_JSON": 0,
+        "WRONG_ANSWER": 0,
+        "HALLUCINATION": 0,
+        "CODE_ERROR": 0,
+        "TIMEOUT": 0,
+        "PROVIDER_ERROR": 0,
+        "ASSERTION_FAILED": 0
+    }
+    
+    failed_items = []
+    total_evaluated = 0
+    total_passed = 0
+    
+    for r in requests:
+        total_evaluated += 1
+        is_fail = r.status != "SUCCESS"
+        fail_cat = "PROVIDER_ERROR" if r.status != "SUCCESS" else "NONE"
+        reason = r.error_message or "Request failed."
+        
+        for q in r.quality_results:
+            if not q.passed:
+                is_fail = True
+                details = q.details or {}
+                fail_cat = details.get("failure_category", "WRONG_ANSWER")
+                reason = details.get("reasoning", q.evaluator_type or "Failed quality check.")
+                
+        if is_fail:
+            if fail_cat not in category_counts:
+                category_counts[fail_cat] = 0
+            category_counts[fail_cat] += 1
+            
+            failed_items.append({
+                "request_id": r.id,
+                "provider_name": r.provider.name if r.provider else "Unknown",
+                "provider_type": r.provider.type if r.provider else "Unknown",
+                "model_name": r.model_name,
+                "prompt_id": r.prompt_id,
+                "prompt_category": r.prompt.category if r.prompt else "General",
+                "prompt_text": r.prompt.prompt if r.prompt else "N/A",
+                "expected_answer": r.prompt.expected_answer if r.prompt else None,
+                "actual_response": r.response_text or "",
+                "status": r.status,
+                "failure_category": fail_cat,
+                "reasoning": reason,
+                "latency_ms": (r.finish_time - r.start_time) / 1000.0 if r.finish_time and r.start_time else None
+            })
+        else:
+            total_passed += 1
+            
+    return {
+        "run_id": run.id,
+        "run_name": run.name,
+        "total_requests": total_evaluated,
+        "passed_requests": total_passed,
+        "failed_requests": len(failed_items),
+        "pass_rate_pct": round((total_passed / total_evaluated) * 100, 1) if total_evaluated > 0 else 0,
+        "category_counts": category_counts,
+        "failures": failed_items
+    }
+
+
+
+# --- HUMAN EVALUATION & TRAFFIC TO DATASET CONVERTER API ---
+@app.post("/api/evaluations/human")
+def submit_human_evaluation(eval_in: dict, db: Session = Depends(get_db)):
+    run_id = eval_in.get("run_id")
+    req_id = eval_in.get("request_id")
+    rating = eval_in.get("rating", "CORRECT")
+    feedback = eval_in.get("feedback")
+    
+    if not run_id or not req_id:
+        raise HTTPException(status_code=400, detail="run_id and request_id are required")
+        
+    existing = db.query(models.HumanEvaluation).filter(
+        models.HumanEvaluation.run_id == run_id,
+        models.HumanEvaluation.request_id == req_id
+    ).first()
+    
+    if existing:
+        existing.rating = rating
+        existing.feedback = feedback
+    else:
+        new_eval = models.HumanEvaluation(
+            run_id=run_id,
+            request_id=req_id,
+            rating=rating,
+            feedback=feedback
+        )
+        db.add(new_eval)
+    db.commit()
+    return {"status": "saved", "rating": rating}
+
+
+@app.get("/api/benchmarks/{id}/human-eval")
+def get_human_evaluations(id: int, db: Session = Depends(get_db)):
+    evals = db.query(models.HumanEvaluation).filter(models.HumanEvaluation.run_id == id).all()
+    requests = crud.get_run_requests(db, id)
+    
+    agreed = 0
+    total_reviewed = len(evals)
+    
+    for e in evals:
+        req = next((r for r in requests if r.id == e.request_id), None)
+        if req:
+            auto_passed = req.status == "SUCCESS" and all(q.passed for q in req.quality_results)
+            human_passed = e.rating == "CORRECT"
+            if auto_passed == human_passed:
+                agreed += 1
+                
+    agreement_rate = round((agreed / total_reviewed) * 100, 1) if total_reviewed > 0 else 100.0
+    
+    ratings_breakdown = {
+        "CORRECT": sum(1 for e in evals if e.rating == "CORRECT"),
+        "INCORRECT": sum(1 for e in evals if e.rating == "INCORRECT"),
+        "PARTIALLY_CORRECT": sum(1 for e in evals if e.rating == "PARTIALLY_CORRECT"),
+        "HALLUCINATED": sum(1 for e in evals if e.rating == "HALLUCINATED"),
+        "POOR_FORMAT": sum(1 for e in evals if e.rating == "POOR_FORMAT")
+    }
+    
+    return {
+        "run_id": id,
+        "total_reviewed": total_reviewed,
+        "agreement_rate_pct": agreement_rate,
+        "ratings_breakdown": ratings_breakdown,
+        "evaluations": [
+            {
+                "request_id": e.request_id,
+                "rating": e.rating,
+                "feedback": e.feedback,
+                "created_at": e.created_at.isoformat() if e.created_at else None
+            }
+            for e in evals
+        ]
+    }
+
+
+@app.post("/api/requests/convert-to-dataset")
+def convert_requests_to_dataset(payload: dict, db: Session = Depends(get_db)):
+    request_ids = payload.get("request_ids", [])
+    dataset_name = payload.get("dataset_name", "Production Traffic Evaluation Suite")
+    category = payload.get("category", "Production Traffic")
+    
+    if not request_ids:
+        raise HTTPException(status_code=400, detail="No request IDs provided")
+        
+    requests = db.query(models.BenchmarkRequest).filter(models.BenchmarkRequest.id.in_(request_ids)).all()
+    if not requests:
+        raise HTTPException(status_code=404, detail="No matching requests found")
+        
+    suite = models.PromptSuite(
+        name=dataset_name,
+        description=f"Generated from {len(requests)} production request traces"
+    )
+    db.add(suite)
+    try:
+        db.commit()
+    except sqlalchemy.exc.IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="A Dataset (Prompt Suite) with this exact name already exists. Please choose a different name.")
+    db.refresh(suite)
+    
+    for r in requests:
+        prompt_text = r.prompt.prompt if r.prompt else (r.response_text[:100] or "Production Sample")
+        sys_prompt = r.prompt.system_prompt if r.prompt else "You are an AI assistant."
+        exp_ans = r.response_text[:300] if r.response_text else None
+        
+        p = models.Prompt(
+            suite_id=suite.id,
+            category=category,
+            prompt=prompt_text,
+            system_prompt=sys_prompt,
+            expected_answer=exp_ans,
+            evaluator="semantic_similarity" if exp_ans else "contains",
+            difficulty="medium",
+            tags="production-traffic,converted"
+        )
+        db.add(p)
+    db.commit()
+    
+    return {
+        "status": "created",
+        "suite_id": suite.id,
+        "suite_name": suite.name,
+        "prompts_count": len(requests)
+    }
+
+
+@app.get("/api/benchmarks/{id}/requests")
+def get_benchmark_requests(id: int, db: Session = Depends(get_db)):
+    run = crud.get_run(db, id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Benchmark run not found")
+        
+    requests = crud.get_run_requests(db, id)
+    
+    # Also get human evaluations
+    evals = db.query(models.HumanEvaluation).filter(models.HumanEvaluation.run_id == id).all()
+    eval_map = {e.request_id: e for e in evals}
+    
+    out = []
+    for r in requests:
+        auto_passed = r.status == "SUCCESS"
+        for q in r.quality_results:
+            if not q.passed:
+                auto_passed = False
+                
+        h_eval = eval_map.get(r.id)
+        
+        out.append({
+            "request_id": r.id,
+            "provider_name": r.provider.name if r.provider else "Unknown",
+            "model_name": r.model_name,
+            "prompt_text": r.prompt.prompt if r.prompt else "N/A",
+            "expected_answer": r.prompt.expected_answer if r.prompt else None,
+            "actual_response": r.response_text or "",
+            "auto_passed": auto_passed,
+            "human_rating": h_eval.rating if h_eval else None,
+            "human_feedback": h_eval.feedback if h_eval else None
+        })
+        
+    return {"run_id": id, "requests": out}

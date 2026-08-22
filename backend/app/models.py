@@ -208,3 +208,16 @@ class SystemEventLog(Base):
     source = Column(String, nullable=False) # e.g. "engine", "provider_sync", "hardware_monitor"
     message = Column(Text, nullable=False)
     details = Column(JSON, nullable=True)
+
+
+class HumanEvaluation(Base):
+    __tablename__ = "human_evaluations"
+    id = Column(Integer, primary_key=True, index=True)
+    run_id = Column(Integer, ForeignKey("benchmark_runs.id", ondelete="CASCADE"), nullable=False)
+    request_id = Column(Integer, ForeignKey("benchmark_requests.id", ondelete="CASCADE"), nullable=False)
+    rating = Column(String, nullable=False) # CORRECT, INCORRECT, PARTIALLY_CORRECT, HALLUCINATED, POOR_FORMAT
+    feedback = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    run = relationship("BenchmarkRun")
+    request = relationship("BenchmarkRequest")

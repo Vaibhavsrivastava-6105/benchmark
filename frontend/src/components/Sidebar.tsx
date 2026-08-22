@@ -15,6 +15,7 @@ export default function Sidebar() {
     { href: "/providers", label: "Providers", icon: Settings },
     { href: "/hardware", label: "Hardware", icon: Cpu },
     { href: "/requests", label: "Global Requests", icon: ScrollText },
+    { href: "/datasets", label: "Datasets", icon: Database },
     { href: "/logs", label: "System Logs", icon: Terminal }
   ];
 
@@ -22,7 +23,7 @@ export default function Sidebar() {
     <aside className="w-64 bg-[#0c0c0e] border-r border-zinc-800 flex flex-col">
       <div className="p-6">
         <h1 className="text-xl text-white font-bold tracking-tight flex items-center gap-2">
-          <Activity className="h-5 w-5 text-cyan-500" />
+          <Activity className="h-5 w-5 text-white" />
           BenchLab
         </h1>
       </div>
