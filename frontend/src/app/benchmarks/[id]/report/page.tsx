@@ -1,7 +1,7 @@
 "use client";
 import React, { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Printer, FileText, CheckCircle, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Download, Printer, FileText, CheckCircle, AlertTriangle } from "lucide-react";
 
 // Types mapping what we get from backend
 type Provider = { id: number; name: string; type: string };
@@ -23,21 +23,40 @@ export default function ReportPage() {
 
   const [run, setRun] = useState<Run | null>(null);
   const [requests, setRequests] = useState<RequestData[]>([]);
+  const [telemetry, setTelemetry] = useState<any[]>([]);
+  const [aiRec, setAiRec] = useState<string | null>(null);
+  const [generatingRec, setGeneratingRec] = useState(false);
   const [loading, setLoading] = useState(true);
+
+
+  const generateAiRecommendation = async () => {
+    setGeneratingRec(true);
+    try {
+      const res = await fetch(`/api/runs/${id}/recommendation`, { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        setAiRec(data.recommendation);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setGeneratingRec(false);
+    }
+  };
 
   useEffect(() => {
     const fetchReportData = async () => {
       try {
-        const [runRes, reqsRes] = await Promise.all([
+        const [runRes, reqRes, telRes] = await Promise.all([
           fetch(`/api/runs/${id}`),
-          fetch(`/api/runs/${id}/results`)
+          fetch(`/api/runs/${id}/results`),
+          fetch(`/api/runs/${id}/telemetry`)
         ]);
-        if (runRes.ok && reqsRes.ok) {
-          setRun(await runRes.json());
-          setRequests(await reqsRes.json());
-        }
-      } catch (err) {
-        console.error("Failed to load report data", err);
+        if (runRes.ok) setRun(await runRes.json());
+        if (reqRes.ok) setRequests(await reqRes.json());
+        if (telRes.ok) setTelemetry(await telRes.json());
+      } catch (e) {
+        console.error(e);
       } finally {
         setLoading(false);
       }
@@ -110,6 +129,33 @@ export default function ReportPage() {
   const highestQuality = [...summary].sort((a, b) => b.meanQuality - a.meanQuality)[0];
 
   const evalMode = run.hardware_info?.benchmark_mode || "standard";
+
+  const exportToCSV = () => {
+    if (!summary || summary.length === 0) return;
+    
+    let csv = "Runtime,Setup,Peak GPU (%),Peak RAM (%),Success Rate (%),Avg TTFT (ms),Speed (t/s)";
+    if (evalMode !== 'standard') csv += ",Quality";
+    csv += "\n";
+
+    summary.forEach(p => {
+      const successRate = p.completed + p.failed > 0 ? ((p.completed / (p.completed + p.failed)) * 100).toFixed(1) : "0";
+      const quality = evalMode === 'structured_json' ? p.jsonRate.toFixed(1) : (p.meanQuality * 100).toFixed(1);
+      
+      let row = `"${p.name}","${p.setup_complexity}",${p.peakGpu.toFixed(1)},${p.peakRam.toFixed(1)},${successRate},${p.meanTtft.toFixed(0)},${p.meanSpeed.toFixed(1)}`;
+      if (evalMode !== 'standard') row += `,${quality}`;
+      
+      csv += row + "\n";
+    });
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `benchlab_run_${run.id}_report.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
   
   return (
     <div className="max-w-4xl mx-auto bg-white min-h-screen text-black shadow-xl my-8 print:my-0 print:shadow-none p-12 space-y-8 rounded-xl print:rounded-none">
@@ -121,12 +167,20 @@ export default function ReportPage() {
         >
           <ArrowLeft className="h-4 w-4" /> Back to Dashboard
         </button>
-        <button 
-          onClick={() => window.print()}
-          className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700"
-        >
-          <Printer className="h-4 w-4" /> Print Report
-        </button>
+        <div className="flex gap-3">
+          <button 
+            onClick={exportToCSV}
+            className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-emerald-700 transition-colors"
+          >
+            <Download className="h-4 w-4" /> Export CSV
+          </button>
+          <button 
+            onClick={() => window.print()}
+            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+          >
+            <Printer className="h-4 w-4" /> Print Report
+          </button>
+        </div>
       </div>
 
       <div className="space-y-2 text-center pb-8">
@@ -139,7 +193,7 @@ export default function ReportPage() {
           <FileText className="h-6 w-6 text-blue-600" /> Methodology & Configuration
         </h2>
         <div className="bg-gray-50 p-6 rounded-xl border border-gray-200 text-sm grid grid-cols-2 gap-4">
-          <div><span className="font-semibold text-gray-700">Model Tested:</span> {run.config.model_name}</div>
+          <div><span className="font-semibold text-gray-700">Model Tested:</span> {run.config.model?.name}</div>
           <div><span className="font-semibold text-gray-700">Concurrency:</span> {run.config.concurrency} parallel streams</div>
           <div><span className="font-semibold text-gray-700">Temperature:</span> {run.config.temperature}</div>
           <div><span className="font-semibold text-gray-700">Evaluation Strategy:</span> {evalMode.toUpperCase()}</div>
@@ -156,66 +210,84 @@ export default function ReportPage() {
 
       <section className="space-y-4">
         <h2 className="text-2xl font-bold border-b border-gray-200 pb-2 flex items-center gap-2">
-          <CheckCircle className="h-6 w-6 text-green-600" /> Executive Summary & Recommendations
+          <CheckCircle className="h-6 w-6 text-green-600" /> AI Executive Summary
         </h2>
         <div className="space-y-3 text-sm text-gray-800 leading-relaxed">
-          <p>
-            Based on the benchmark data, <strong>{fastestSpeed?.name}</strong> provided the highest decode throughput at <strong>{fastestSpeed?.meanSpeed.toFixed(1)} tokens/sec</strong>.
-          </p>
-          {lowestTtft && (
-            <p>
-              For latency-sensitive applications (like chatbots), <strong>{lowestTtft.name}</strong> delivered the fastest Time-To-First-Token prefill phase averaging <strong>{lowestTtft.meanTtft.toFixed(0)} ms</strong>.
-            </p>
+          {aiRec ? (
+             <div className="p-6 bg-purple-50 border border-purple-200 rounded-xl prose prose-sm max-w-none text-purple-900" dangerouslySetInnerHTML={{__html: aiRec.replace(/\n/g, "<br/>")}}></div>
+          ) : (
+             <div className="flex flex-col items-center justify-center p-8 bg-gray-50 border border-gray-200 rounded-xl">
+                <p className="text-gray-500 mb-4 text-center">Use your local LLM judge to analyze this benchmark data and synthesize a deployment recommendation.</p>
+                <button onClick={generateAiRecommendation} disabled={generatingRec} className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded shadow disabled:opacity-50 flex items-center gap-2">
+                  {generatingRec ? "Analyzing Data..." : "Generate AI Recommendation"}
+                </button>
+             </div>
           )}
-          {evalMode === "structured_json" && (
-            <p>
-              <strong>JSON Reliability:</strong> 
-              {summary.map(s => ` ${s.name} scored ${s.jsonRate.toFixed(0)}%.`).join("")}
-            </p>
-          )}
-          
-          <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-            <h4 className="font-bold text-blue-900 mb-2">Deployment Recommendation</h4>
-            <p className="text-blue-800">
-              For <strong>Local Development</strong>, tools with low setup overhead (like Ollama) are recommended unless large context windows cause severe TTFT spikes. <br/>
-              For <strong>Production Deployments</strong>, a highly optimized runtime like <strong>{fastestSpeed?.name}</strong> should be leveraged to maximize hardware saturation and Token/s throughput, especially under high concurrency.
-            </p>
-          </div>
+        </div>
+      </section>
+      
+      <section className="space-y-4 pt-6">
+        <h2 className="text-2xl font-bold border-b border-gray-200 pb-2">Categorical Accuracy Breakdown</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {summary.map(p => (
+            <div key={p.name} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+               <h4 className="font-bold text-gray-800 mb-2">{p.name}</h4>
+               <div className="space-y-2">
+                 {Object.entries(p.categories).map(([cat, data]: [string, any]) => {
+                   const avg = data.scores.length > 0 ? data.scores.reduce((a:number,b:number)=>a+b,0)/data.scores.length : 0;
+                   return (
+                     <div key={cat} className="flex justify-between items-center text-sm">
+                       <span className="text-gray-600">{cat}</span>
+                       <span className={`font-bold ${avg >= 0.8 ? 'text-green-600' : avg >= 0.5 ? 'text-yellow-600' : 'text-red-600'}`}>
+                         {(avg * 100).toFixed(1)}%
+                       </span>
+                     </div>
+                   );
+                 })}
+               </div>
+            </div>
+          ))}
         </div>
       </section>
 
       <section className="space-y-4 pt-6 page-break-before">
         <h2 className="text-2xl font-bold border-b border-gray-200 pb-2">Raw Performance Matrix</h2>
-        <table className="w-full text-sm text-left border border-gray-200">
-          <thead className="bg-gray-100 text-gray-700">
-            <tr>
-              <th className="px-4 py-3 border-b">Runtime / Provider</th>
-              <th className="px-4 py-3 border-b">Success Rate</th>
-              <th className="px-4 py-3 border-b">Avg TTFT (Prefill)</th>
-              <th className="px-4 py-3 border-b">Speed (Decode)</th>
-              {evalMode !== 'standard' && <th className="px-4 py-3 border-b">Quality / JSON %</th>}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-200">
-            {summary.map((p) => (
-              <tr key={p.name} className="hover:bg-gray-50">
-                <td className="px-4 py-3 font-semibold text-gray-900">{p.name}</td>
-                <td className="px-4 py-3">
-                  <span className={p.failed > 0 ? "text-red-600" : "text-green-600"}>
-                    {((p.completed / (p.completed + p.failed)) * 100).toFixed(1)}%
-                  </span>
-                </td>
-                <td className="px-4 py-3 font-mono">{p.meanTtft > 0 ? `${p.meanTtft.toFixed(0)} ms` : "N/A"}</td>
-                <td className="px-4 py-3 font-mono">{p.meanSpeed.toFixed(1)} t/s</td>
-                {evalMode !== 'standard' && (
-                  <td className="px-4 py-3 font-mono font-semibold text-blue-600">
-                    {evalMode === 'structured_json' ? `${p.jsonRate.toFixed(1)}%` : `${(p.meanQuality * 10).toFixed(1)}/10`}
-                  </td>
-                )}
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm text-left border border-gray-200">
+            <thead className="bg-gray-100 text-gray-700">
+              <tr>
+                <th className="px-4 py-3 border-b">Runtime</th>
+                <th className="px-4 py-3 border-b">Setup</th>
+                <th className="px-4 py-3 border-b">Peak GPU / RAM</th>
+                <th className="px-4 py-3 border-b">Success Rate</th>
+                <th className="px-4 py-3 border-b">Avg TTFT</th>
+                <th className="px-4 py-3 border-b">Speed</th>
+                {evalMode !== 'standard' && <th className="px-4 py-3 border-b">Quality</th>}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {summary.map((p) => (
+                <tr key={p.name} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 font-semibold text-gray-900">{p.name}</td>
+                  <td className="px-4 py-3 uppercase text-xs">{p.setup_complexity}</td>
+                  <td className="px-4 py-3 font-mono text-xs">{p.peakGpu.toFixed(1)}% / {p.peakRam.toFixed(1)}%</td>
+                  <td className="px-4 py-3">
+                    <span className={p.failed > 0 ? "text-red-600" : "text-green-600"}>
+                      {p.completed + p.failed > 0 ? ((p.completed / (p.completed + p.failed)) * 100).toFixed(1) : 0}%
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 font-mono">{p.meanTtft > 0 ? `${p.meanTtft.toFixed(0)} ms` : "N/A"}</td>
+                  <td className="px-4 py-3 font-mono">{p.meanSpeed.toFixed(1)} t/s</td>
+                  {evalMode !== 'standard' && (
+                    <td className="px-4 py-3 font-mono font-semibold text-blue-600">
+                      {evalMode === 'structured_json' ? `${p.jsonRate.toFixed(1)}%` : `${(p.meanQuality * 100).toFixed(1)}%`}
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
       
       <section className="space-y-4 pt-6">

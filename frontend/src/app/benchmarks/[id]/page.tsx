@@ -57,6 +57,44 @@ export default function BenchmarkDetails() {
   const [loading, setLoading] = useState(true);
   const [stopping, setStopping] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const terminalRef = useRef<HTMLDivElement>(null);
+
+  const [termOllama, setTermOllama] = useState("");
+  const [termLlamaCpp, setTermLlamaCpp] = useState("");
+  const [termBackend, setTermBackend] = useState("");
+  const [termVllm, setTermVllm] = useState("");
+  const [termTransformers, setTermTransformers] = useState("");
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (run) {
+      interval = setInterval(async () => {
+        try {
+          const res1 = await fetch(`${API_BASE}/api/terminal/ollama`);
+          if (res1.ok) setTermOllama((await res1.json()).log);
+
+          const res2 = await fetch(`${API_BASE}/api/terminal/llamacpp`);
+          if (res2.ok) setTermLlamaCpp((await res2.json()).log);
+
+          const res3 = await fetch(`${API_BASE}/api/terminal/backend`);
+          if (res3.ok) setTermBackend((await res3.json()).log);
+          
+          const res4 = await fetch(`${API_BASE}/api/terminal/vllm`);
+          if (res4.ok) setTermVllm((await res4.json()).log);
+
+          const res5 = await fetch(`${API_BASE}/api/terminal/transformers`);
+          if (res5.ok) setTermTransformers((await res5.json()).log);
+        } catch(e) {}
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [run]);
+
+  useEffect(() => {
+    if (terminalRef.current) {
+      terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
+    }
+  }, [requests]);
 
   const fetchStaticData = async () => {
     try {
@@ -146,7 +184,7 @@ export default function BenchmarkDetails() {
     }> = {};
 
     requests.forEach(r => {
-      const name = r.provider.name;
+      const name = `${r.provider.name} (${r.model_name})`;
       if (!stats[name]) {
         stats[name] = {
           name,
@@ -369,6 +407,108 @@ export default function BenchmarkDetails() {
           );
         })}
       </div>
+
+      {/* Real-time Hardware Terminals */}
+      {(() => {
+        const hasLlamaCpp = providerSummary.some(p => p.type === "llamacpp");
+        const hasOllama = providerSummary.some(p => p.name.toLowerCase().includes("ollama"));
+        const hasVllm = providerSummary.some(p => p.type === "vllm");
+        const hasTransformers = providerSummary.some(p => p.type === "transformers");
+        const termCount = 1 + (hasLlamaCpp ? 1 : 0) + (hasOllama ? 1 : 0) + (hasVllm ? 1 : 0) + (hasTransformers ? 1 : 0);
+        const gridClass = termCount === 1 ? "grid-cols-1" :
+                          termCount === 2 ? "grid-cols-1 md:grid-cols-2" :
+                          termCount === 3 ? "grid-cols-1 md:grid-cols-3" :
+                          "grid-cols-1 md:grid-cols-2 xl:grid-cols-4";
+
+        return (
+          <div className={`grid ${gridClass} gap-6 mt-8`}>
+            
+            {/* Backend Terminal */}
+            <div className="bg-[#050505] border border-zinc-800 rounded-xl overflow-hidden flex flex-col h-72 shadow-2xl">
+              <div className="bg-zinc-900 px-4 py-2 flex items-center gap-2 border-b border-zinc-800 shadow-md z-10">
+                <div className="flex gap-1.5">
+                  <div className="w-3 h-3 rounded-full bg-red-500/80"></div>
+                  <div className="w-3 h-3 rounded-full bg-yellow-500/80"></div>
+                  <div className="w-3 h-3 rounded-full bg-green-500/80"></div>
+                </div>
+                <span className="text-xs font-mono text-zinc-400 ml-2">FastAPI Backend (Engine)</span>
+              </div>
+              <div className="p-4 overflow-y-auto flex-1 font-mono text-[10px] space-y-1 scroll-smooth text-zinc-300 break-all whitespace-pre-wrap flex flex-col-reverse">
+                {termBackend || "Connecting to stream..."}
+              </div>
+            </div>
+
+            {/* Llama.cpp Terminal */}
+            {hasLlamaCpp && (
+              <div className="bg-[#050505] border border-zinc-800 rounded-xl overflow-hidden flex flex-col h-72 shadow-2xl">
+                <div className="bg-zinc-900 px-4 py-2 flex items-center gap-2 border-b border-zinc-800 shadow-md z-10">
+                  <div className="flex gap-1.5">
+                    <div className="w-3 h-3 rounded-full bg-red-500/80"></div>
+                    <div className="w-3 h-3 rounded-full bg-yellow-500/80"></div>
+                    <div className="w-3 h-3 rounded-full bg-green-500/80"></div>
+                  </div>
+                  <span className="text-xs font-mono text-zinc-400 ml-2">llama.cpp Engine</span>
+                </div>
+                <div className="p-4 overflow-y-auto flex-1 font-mono text-[10px] space-y-1 scroll-smooth text-emerald-400 break-all whitespace-pre-wrap flex flex-col-reverse">
+                  {termLlamaCpp || "Connecting to stream..."}
+                </div>
+              </div>
+            )}
+
+            {/* Transformers Terminal */}
+            {hasTransformers && (
+              <div className="bg-[#050505] border border-zinc-800 rounded-xl overflow-hidden flex flex-col h-72 shadow-2xl">
+                <div className="bg-zinc-900 px-4 py-2 flex items-center gap-2 border-b border-zinc-800 shadow-md z-10">
+                  <div className="flex gap-1.5">
+                    <div className="w-3 h-3 rounded-full bg-red-500/80"></div>
+                    <div className="w-3 h-3 rounded-full bg-yellow-500/80"></div>
+                    <div className="w-3 h-3 rounded-full bg-green-500/80"></div>
+                  </div>
+                  <span className="text-xs font-mono text-zinc-400 ml-2">Hugging Face Transformers</span>
+                </div>
+                <div className="p-4 overflow-y-auto flex-1 font-mono text-[10px] space-y-1 scroll-smooth text-pink-400 break-all whitespace-pre-wrap flex flex-col-reverse">
+                  {termTransformers || "Connecting to stream..."}
+                </div>
+              </div>
+            )}
+
+            {/* Ollama Terminal */}
+            {hasOllama && (
+              <div className="bg-[#050505] border border-zinc-800 rounded-xl overflow-hidden flex flex-col h-72 shadow-2xl">
+                <div className="bg-zinc-900 px-4 py-2 flex items-center gap-2 border-b border-zinc-800 shadow-md z-10">
+                  <div className="flex gap-1.5">
+                    <div className="w-3 h-3 rounded-full bg-red-500/80"></div>
+                    <div className="w-3 h-3 rounded-full bg-yellow-500/80"></div>
+                    <div className="w-3 h-3 rounded-full bg-green-500/80"></div>
+                  </div>
+                  <span className="text-xs font-mono text-zinc-400 ml-2">Ollama Engine</span>
+                </div>
+                <div className="p-4 overflow-y-auto flex-1 font-mono text-[10px] space-y-1 scroll-smooth text-cyan-400 break-all whitespace-pre-wrap flex flex-col-reverse">
+                  {termOllama || "Connecting to stream..."}
+                </div>
+              </div>
+            )}
+
+            {/* vLLM Terminal */}
+            {hasVllm && (
+              <div className="bg-[#050505] border border-zinc-800 rounded-xl overflow-hidden flex flex-col h-72 shadow-2xl">
+                <div className="bg-zinc-900 px-4 py-2 flex items-center gap-2 border-b border-zinc-800 shadow-md z-10">
+                  <div className="flex gap-1.5">
+                    <div className="w-3 h-3 rounded-full bg-red-500/80"></div>
+                    <div className="w-3 h-3 rounded-full bg-yellow-500/80"></div>
+                    <div className="w-3 h-3 rounded-full bg-green-500/80"></div>
+                  </div>
+                  <span className="text-xs font-mono text-zinc-400 ml-2">vLLM Engine</span>
+                </div>
+                <div className="p-4 overflow-y-auto flex-1 font-mono text-[10px] space-y-1 scroll-smooth text-purple-400 break-all whitespace-pre-wrap flex flex-col-reverse">
+                  {termVllm || "Connecting to stream..."}
+                </div>
+              </div>
+            )}
+
+          </div>
+        );
+      })()}
 
       {/* Telemetry and Request Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">

@@ -14,6 +14,7 @@ class Provider(Base):
     enabled = Column(Boolean, default=True)
     last_status = Column(String, default="UNTESTED")
     last_error = Column(String, nullable=True)
+    setup_complexity = Column(String, default="medium")  # low, medium, high
     last_models = Column(String, nullable=True)
     max_concurrency = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
@@ -73,7 +74,7 @@ class BenchmarkConfig(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
-    model_id = Column(Integer, ForeignKey("models.id"), nullable=False)
+    model_id = Column(Integer, ForeignKey("models.id"), nullable=True)
     temperature = Column(Float, default=0.0)
     top_p = Column(Float, default=1.0)
     top_k = Column(Integer, default=50)

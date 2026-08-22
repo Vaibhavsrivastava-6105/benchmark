@@ -600,16 +600,24 @@ export default function NewBenchmark() {
                   Use identical settings across all providers
                 </label>
               </div>
-              <div className="flex items-center gap-3 pt-6">
+              <div 
+                className="flex items-center gap-4 mt-6 p-4 bg-pink-950/30 border-2 border-pink-500/60 rounded-xl shadow-[0_0_15px_rgba(236,72,153,0.2)] hover:shadow-[0_0_25px_rgba(236,72,153,0.4)] transition-all cursor-pointer"
+                onClick={() => setSequentialExecution(!sequentialExecution)}
+              >
                 <input 
                   type="checkbox" 
                   id="sequential"
                   checked={sequentialExecution}
-                  onChange={(e) => setSequentialExecution(e.target.checked)}
-                  className="rounded border-pink-900/50 text-pink-400 focus:ring-pink-500"
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    setSequentialExecution(e.target.checked);
+                  }}
+                  className="w-7 h-7 rounded border-pink-500 text-pink-500 focus:ring-pink-500 focus:ring-offset-2 focus:ring-offset-black cursor-pointer"
+                  onClick={(e) => e.stopPropagation()}
                 />
-                <label htmlFor="sequential" className="text-xs font-semibold text-zinc-400 cursor-pointer">
-                  Run sequentially (Saves VRAM, prevents GPU crashes)
+                <label htmlFor="sequential" className="text-lg font-bold text-pink-100 cursor-pointer select-none flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                  Run sequentially 
+                  <span className="text-pink-400 font-medium text-sm">(Saves VRAM, prevents GPU crashes)</span>
                 </label>
               </div>
             </div>

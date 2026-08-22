@@ -73,12 +73,12 @@ def get_run_telemetry(db: Session, run_id: int):
 def get_run_report(db: Session, run_id: int):
     return db.query(models.Report).filter(models.Report.run_id == run_id).first()
 
-def generate_config_hash(model_name: str, config: schemas.BenchmarkConfigCreate) -> str:
+def generate_config_hash(model_names: list, config: schemas.BenchmarkConfigCreate) -> str:
     """
     Computes a unique SHA-256 configuration hash based on parameters, prompt suites, and model specs.
     """
     data = {
-        "model_name": model_name,
+        "model_names": model_names,
         "temperature": config.temperature,
         "top_p": config.top_p,
         "top_k": config.top_k,
@@ -94,29 +94,17 @@ def generate_config_hash(model_name: str, config: schemas.BenchmarkConfigCreate)
     return hashlib.sha256(dumped.encode()).hexdigest()[:12]
 
 def create_benchmark_run(db: Session, run_in: schemas.BenchmarkRunCreate):
-    # 1. Resolve or Create Model
     cfg_in = run_in.config_create
-    model_obj = db.query(models.Model).filter(models.Model.name == cfg_in.model_name).first()
-    if not model_obj:
-        model_obj = models.Model(
-            name=cfg_in.model_name,
-            revision=cfg_in.model_revision,
-            quantization=cfg_in.model_quantization,
-            context_length=cfg_in.model_context_length,
-            parameters=cfg_in.model_parameters,
-            architecture=cfg_in.model_architecture
-        )
-        db.add(model_obj)
-        db.commit()
-        db.refresh(model_obj)
+    model_names = run_in.model_names if hasattr(run_in, 'model_names') and run_in.model_names else [cfg_in.model_name] if cfg_in.model_name else ["Unknown"]
 
     # 2. Check config hash
-    cfg_hash = generate_config_hash(model_obj.name, cfg_in)
+    cfg_hash = generate_config_hash(model_names, cfg_in)
     config_obj = db.query(models.BenchmarkConfig).filter(models.BenchmarkConfig.config_hash == cfg_hash).first()
     if not config_obj:
+        dummy_model = db.query(models.Model).first()
         config_obj = models.BenchmarkConfig(
             name=cfg_in.name,
-            model_id=model_obj.id,
+            model_id=dummy_model.id if dummy_model else 1,
             temperature=cfg_in.temperature,
             top_p=cfg_in.top_p,
             top_k=cfg_in.top_k,
@@ -140,6 +128,7 @@ def create_benchmark_run(db: Session, run_in: schemas.BenchmarkRunCreate):
     
     # Pack benchmark execution parameters into run metadata
     hardware_static["provider_ids"] = run_in.provider_ids
+    hardware_static["model_names"] = model_names
     hardware_static["prompt_suite_ids"] = run_in.prompt_suite_ids
     hardware_static["llm_judge_provider_id"] = run_in.llm_judge_provider_id
     hardware_static["llm_judge_model_name"] = run_in.llm_judge_model_name
@@ -147,6 +136,8 @@ def create_benchmark_run(db: Session, run_in: schemas.BenchmarkRunCreate):
     hardware_static["exact_match_keyword"] = getattr(run_in, "exact_match_keyword", None)
     hardware_static["custom_hardware_profile"] = getattr(run_in, "custom_hardware_profile", None)
     hardware_static["sequential_execution"] = getattr(run_in, "sequential_execution", True)
+    hardware_static["targets"] = getattr(run_in, "targets", None) or (run_in.model_dump().get("targets") if hasattr(run_in, "model_dump") else run_in.dict().get("targets", None))
+    print("TARGETS RECEIVED:", hardware_static["targets"])
 
     db_run = models.BenchmarkRun(
         name=run_in.name,

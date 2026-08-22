@@ -150,6 +150,6 @@ def stop_run(run_id: int) -> bool:
     """
     runner = active_runners.get(run_id)
     if runner:
-        runner.stop_requested = True
+        runner.stop()
         return True
     return False

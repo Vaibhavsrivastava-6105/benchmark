@@ -53,6 +53,9 @@ class BenchmarkRunner:
         # which providers and prompts are active. Let's pass them dynamically or read them from database.
         # To support direct database queries, we can store selected lists in run.hardware_info JSON under "configs".
         meta = run.hardware_info or {}
+        model_names = meta.get("model_names", ["Unknown"])
+        targets = meta.get("targets")
+        judge_model = meta.get("llm_judge_model_name")
         provider_ids = meta.get("provider_ids", [])
         suite_ids = meta.get("prompt_suite_ids", [])
         benchmark_mode = meta.get("benchmark_mode", "standard")
@@ -79,7 +82,7 @@ class BenchmarkRunner:
 
         # Initialize Judge Provider if specified
         judge_provider = None
-        judge_model = meta.get("llm_judge_model_name")
+        
         judge_provider_id = meta.get("llm_judge_provider_id")
         if judge_provider_id and judge_model:
             j_prov = self.db.query(Provider).filter(Provider.id == judge_provider_id).first()
@@ -88,6 +91,37 @@ class BenchmarkRunner:
                     j_prov.id, j_prov.type, j_prov.name, j_prov.base_url, j_prov.api_key
                 )
 
+                # PRE-FLIGHT CHECK: Auto-start offline providers based on targets
+        import asyncio
+        from app.engine.process_manager import start_provider_with_model
+        started_any = False
+        if targets and len(targets) > 0:
+            provider_map = {p.id: p for p in providers}
+            for t in targets:
+                prov_id = t.get("provider_id")
+                mn = t.get("model_name")
+                p = provider_map.get(prov_id)
+                if p:
+                    c = get_provider_client(p.id, p.type, p.name, p.base_url, p.api_key)
+                    health = await c.health_check_detailed()
+                    if not health["online"]:
+                        self.trigger_event("info", {"message": f"Auto-starting {p.name} for {mn}..."})
+                        start_provider_with_model(p.type, mn, p.base_url)
+                        started_any = True
+        else:
+            for mn in model_names:
+                for p in providers:
+                    c = get_provider_client(p.id, p.type, p.name, p.base_url, p.api_key)
+                    health = await c.health_check_detailed()
+                    if not health["online"]:
+                        self.trigger_event("info", {"message": f"Auto-starting {p.name} for {mn}..."})
+                        start_provider_with_model(p.type, mn, p.base_url)
+                        started_any = True
+        
+        if started_any:
+            self.trigger_event("info", {"message": "Waiting 8 seconds for offline servers to boot..."})
+            await asyncio.sleep(8)
+
         # 1. Warmup Requests (Execute concurrently or sequentially per provider/model)
         if config.warmup_requests > 0:
             self.trigger_event("warmup_started", {"count": config.warmup_requests})
@@ -95,19 +129,33 @@ class BenchmarkRunner:
             self.trigger_event("warmup_completed", {})
 
         # Prepare request queue
-        # Each request is: provider x prompt x repetition
+        # Each request is: provider x prompt x repetition (or target x prompt x repetition)
         request_queue = []
         req_index = 0
         for repetition in range(config.repetitions):
             for prompt in prompts:
-                for provider in providers:
-                    request_queue.append({
-                        "provider": provider,
-                        "prompt": prompt,
-                        "repetition": repetition,
-                        "index": req_index
-                    })
-                    req_index += 1
+                if targets:
+                    for t in targets:
+                        provider = next((p for p in providers if p.id == t.get("provider_id")), None)
+                        if provider:
+                            request_queue.append({
+                                "provider": provider,
+                                "prompt": prompt,
+                                "model_name": t.get("model_name", model_name),
+                                "repetition": repetition,
+                                "index": req_index
+                            })
+                            req_index += 1
+                else:
+                    for provider in providers:
+                        request_queue.append({
+                            "provider": provider,
+                            "prompt": prompt,
+                            "model_name": model_name,
+                            "repetition": repetition,
+                            "index": req_index
+                        })
+                        req_index += 1
 
         run.total_requests = len(request_queue)
         self.db.commit()
@@ -139,12 +187,13 @@ class BenchmarkRunner:
             prompt = item["prompt"]
             repetition = item["repetition"]
             idx = item["index"]
+            item_model_name = item.get("model_name", model_name)
 
             # Create request record
             db_req = BenchmarkRequest(
                 run_id=self.run_id,
                 provider_id=provider.id,
-                model_name=model_name,
+                model_name=item_model_name,
                 prompt_id=prompt.id,
                 request_index=idx,
                 repetition_index=repetition,
@@ -211,7 +260,7 @@ class BenchmarkRunner:
 
                     async def process_stream():
                         nonlocal error, ttft_ms, first_token_time, text, prompt_tokens, output_tokens, token_count_source, finish_time
-                        async for chunk in client.generate_stream(model_name, mode_prompt, mode_sys, gen_options):
+                        async for chunk in client.generate_stream(item_model_name, mode_prompt, mode_sys, gen_options):
                             if self.stop_requested:
                                 break
                             if "error" in chunk:

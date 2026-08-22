@@ -10,6 +10,7 @@ class ProviderBase(BaseModel):
     api_key: Optional[str] = None
     enabled: Optional[bool] = True
     max_concurrency: Optional[int] = None
+    setup_complexity: Optional[str] = "medium"
 
 class ProviderCreate(ProviderBase):
     pass
@@ -108,7 +109,7 @@ class BenchmarkConfigBase(BaseModel):
     use_identical_settings: Optional[bool] = True
 
 class BenchmarkConfigCreate(BenchmarkConfigBase):
-    model_name: str
+    model_name: Optional[str] = None
     model_revision: Optional[str] = None
     model_quantization: Optional[str] = None
     model_context_length: Optional[int] = None
@@ -130,7 +131,9 @@ class BenchmarkRunCreate(BaseModel):
     name: str
     config_id: Optional[int] = None
     config_create: Optional[BenchmarkConfigCreate] = None
+    model_names: List[str] = []
     provider_ids: List[int]
+    targets: Optional[List[Dict[str, Any]]] = None
     prompt_suite_ids: List[int]
     # Options for LLM Judge
     llm_judge_provider_id: Optional[int] = None
@@ -182,7 +185,7 @@ class BenchmarkRequestResponse(BaseModel):
     run_id: int
     provider_id: int
     provider: ProviderResponse
-    model_name: str
+    model_name: Optional[str] = None
     prompt_id: int
     prompt: PromptResponse
     request_index: int

@@ -265,9 +265,22 @@ def get_run_details(id: int, db: Session = Depends(get_db)):
     return run
 
 @app.post("/api/runs/{id}/stop")
-def trigger_stop_run(id: int):
+def trigger_stop_run(id: int, db: Session = Depends(get_db)):
     stopped = stop_run(id)
+    if not stopped:
+        run = crud.get_run(db, id)
+        if run and run.status in ["PENDING", "RUNNING"]:
+            run.status = "STOPPED"
+            db.commit()
+            stopped = True
     return {"stopped": stopped}
+
+from app.engine.report_generator import generate_recommendation_async
+
+@app.post("/api/runs/{id}/recommendation")
+async def get_run_recommendation(id: int, db: Session = Depends(get_db)):
+    rec = await generate_recommendation_async(id, db)
+    return {"recommendation": rec}
 
 @app.get("/api/runs/{id}/results", response_model=List[schemas.BenchmarkRequestResponse])
 def get_run_results(id: int, db: Session = Depends(get_db)):
@@ -627,6 +640,39 @@ def get_global_request_detail(req_id: int, db: Session = Depends(get_db)):
         "system_prompt": r.prompt.system_prompt if r.prompt else None
     }
 
+
+
+import os
+def get_log_path(engine: str) -> str:
+    # Future-proof path for when running on Linux / Docker
+    production_path = f"logs/{engine}.log"
+    if os.path.exists(production_path):
+        return production_path
+        
+    base = r"C:\Users\vaibh\.gemini\antigravity\brain\c50920ab-f7b9-4a6d-8be5-5f13a8307b50\.system_generated\tasks" + "\\" 
+    # Up-to-date active tasks for this session
+    fallbacks = {
+        "ollama": base + "task-4049.log",
+        "llamacpp": base + "task-4110.log",
+        "backend": base + "task-4145.log",
+        "vllm": base + "task-vllm.log",
+        "transformers": base + "task-4145.log"
+    }
+    return fallbacks.get(engine, production_path)
+
+
+@app.get("/api/terminal/{engine}")
+def get_terminal_logs(engine: str):
+    path = get_log_path(engine)
+    if not os.path.exists(path):
+        return {"log": "Log file not found or process has not started emitting logs yet. (Make sure standard output is piped to logs/" + engine + ".log on your production machine!)"}
+        
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()
+            return {"log": "".join(lines[-100:])}
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.get("/api/logs")
 def get_system_logs(limit: int = 200, db: Session = Depends(get_db)):
