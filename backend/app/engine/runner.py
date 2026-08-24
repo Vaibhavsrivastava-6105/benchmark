@@ -387,20 +387,48 @@ class BenchmarkRunner:
         run.completed_at = datetime_now()
         run.duration_seconds = end_time_s - start_time_s
         
-        # Calculate aggregates
+        # Calculate statistical aggregates (Percentiles & Standard Deviations)
+        from app.engine.evaluator import calculate_percentiles, evaluate_consistency, calculate_cost_and_energy
+        
         reqs = self.db.query(BenchmarkRequest).filter(BenchmarkRequest.run_id == run.id).all()
         valid_ttfts = []
+        valid_latencies = []
         valid_tpots = []
+        total_prompt_tokens = 0
+        total_output_tokens = 0
+        
+        prompt_responses_map = {} # prompt_id -> list of responses for consistency check
+
         for r in reqs:
-            if r.status == "SUCCESS" and r.first_token_time and r.start_time:
-                ttft = (r.first_token_time - r.start_time) / 1000.0
-                valid_ttfts.append(ttft)
-                if r.finish_time and r.output_tokens > 1:
+            if r.status == "SUCCESS":
+                total_prompt_tokens += (r.prompt_tokens or 0)
+                total_output_tokens += (r.output_tokens or 0)
+                
+                if r.first_token_time and r.start_time:
+                    ttft = (r.first_token_time - r.start_time) / 1000.0
+                    valid_ttfts.append(ttft)
+                if r.finish_time and r.start_time:
+                    lat = (r.finish_time - r.start_time) / 1000.0
+                    valid_latencies.append(lat)
+                if r.finish_time and r.first_token_time and r.output_tokens and r.output_tokens > 1:
                     tpot = (r.finish_time - r.first_token_time) / 1000.0 / (r.output_tokens - 1)
                     valid_tpots.append(tpot)
+                
+                if r.prompt_id and r.response_text:
+                    prompt_responses_map.setdefault(r.prompt_id, []).append(r.response_text)
         
+        # Percentiles & Std Dev
         if valid_ttfts:
-            run.mean_ttft_ms = sum(valid_ttfts) / len(valid_ttfts)
+            ttft_stats = calculate_percentiles(valid_ttfts)
+            run.mean_ttft_ms = ttft_stats["mean"]
+            run.std_dev_ttft_ms = ttft_stats["std_dev"]
+        if valid_latencies:
+            lat_stats = calculate_percentiles(valid_latencies)
+            run.std_dev_latency_ms = lat_stats["std_dev"]
+            run.p50_latency_ms = lat_stats["p50"]
+            run.p90_latency_ms = lat_stats["p90"]
+            run.p95_latency_ms = lat_stats["p95"]
+            run.p99_latency_ms = lat_stats["p99"]
         if valid_tpots:
             run.mean_tpot_ms = sum(valid_tpots) / len(valid_tpots)
             
@@ -408,12 +436,62 @@ class BenchmarkRunner:
         qualities = self.db.query(QualityResult).join(BenchmarkRequest).filter(BenchmarkRequest.run_id == run.id).all()
         if qualities:
             json_evals = [q for q in qualities if q.evaluator_type == "json_schema"]
-            acc_evals = [q for q in qualities if q.evaluator_type != "json_schema"]
+            acc_evals = [q for q in qualities if q.evaluator_type not in ["json_schema", "llm_judge", "instruction_following", "reasoning_quality", "hallucination_detector"]]
+            inst_evals = [q for q in qualities if q.evaluator_type == "instruction_following"]
+            reas_evals = [q for q in qualities if q.evaluator_type == "reasoning_quality"]
+            hall_evals = [q for q in qualities if q.evaluator_type == "hallucination_detector"]
+            judge_evals = [q for q in qualities if q.evaluator_type == "llm_judge"]
             
             if json_evals:
                 run.json_success_rate = sum(1 for q in json_evals if q.passed) / len(json_evals) * 100.0
             if acc_evals:
                 run.accuracy_score = sum(q.score for q in acc_evals) / len(acc_evals) * 100.0
+            if inst_evals:
+                run.instruction_following_rate = sum(q.score for q in inst_evals) / len(inst_evals) * 100.0
+            if reas_evals:
+                run.reasoning_score = sum(q.score for q in reas_evals) / len(reas_evals) * 100.0
+            if hall_evals:
+                run.hallucination_rate = sum(1 for q in hall_evals if not q.passed) / len(hall_evals) * 100.0
+            if judge_evals:
+                run.llm_judge_score = sum(q.score for q in judge_evals) / len(judge_evals) * 100.0
+
+        # Consistency Evaluation across repetitions
+        consistency_scores = []
+        for p_id, responses in prompt_responses_map.items():
+            if len(responses) >= 2:
+                c_score, _ = evaluate_consistency(responses)
+                consistency_scores.append(c_score)
+        if consistency_scores:
+            run.consistency_score = round((sum(consistency_scores) / len(consistency_scores)) * 100.0, 2)
+        else:
+            run.consistency_score = 100.0
+
+        # Financial Cost & Energy Consumption Analysis
+        telemetry_samples = self.db.query(TelemetrySample).filter(TelemetrySample.run_id == run.id).all()
+        cost_stats = calculate_cost_and_energy(
+            prompt_tokens=total_prompt_tokens,
+            output_tokens=total_output_tokens,
+            duration_seconds=run.duration_seconds,
+            telemetry_samples=telemetry_samples,
+            cost_input_per_1k=getattr(config.model, "cost_input_per_1k", 0.0) if config.model else 0.0,
+            cost_output_per_1k=getattr(config.model, "cost_output_per_1k", 0.0) if config.model else 0.0,
+            electricity_cost_kwh=getattr(config, "local_electricity_cost_kwh", 0.12)
+        )
+        run.total_cost_usd = cost_stats["total_cost_usd"]
+        run.cost_per_1k_tokens = cost_stats["cost_per_1k_tokens"]
+        run.cost_per_1m_tokens = cost_stats["cost_per_1m_tokens"]
+        run.energy_consumption_kwh = cost_stats["energy_consumption_kwh"]
+        run.energy_cost_usd = cost_stats["energy_cost_usd"]
+
+        # Immutable snapshots of datasets & models
+        run.dataset_snapshot = [
+            {"suite_id": p.suite_id, "prompt_id": p.id, "category": p.category, "version": getattr(p, "version", "1.0.0")}
+            for p in prompts
+        ]
+        run.model_snapshot = [
+            {"provider_id": item["provider"].id, "provider_name": item["provider"].name, "model": item["model_name"]}
+            for item in request_queue[:len(providers)]
+        ]
 
         if self.stop_requested:
             run.status = "STOPPED"

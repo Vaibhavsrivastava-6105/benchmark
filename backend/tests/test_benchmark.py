@@ -147,3 +147,70 @@ def test_evaluator_semantic_similarity():
     )
     assert score2 < 0.50
     assert score1 > score2
+
+def test_evaluator_instruction_following():
+    # Word limit constraint
+    schema = {
+        "max_words": 10,
+        "forbidden_words": ["elephant"],
+        "require_bullets": True,
+        "bullet_count": 2
+    }
+    valid_resp = "- Item one\n- Item two"
+    score, passed, details = ResponseEvaluator.evaluate(
+        "instruction_following", valid_resp, schema_definition=schema
+    )
+    assert passed is True
+    assert score >= 0.80
+
+    # Constraint violation (exceeds word limit and contains forbidden word)
+    invalid_resp = "- Item one has an elephant inside it\n- Item two is also exceedingly verbose and long"
+    score_inv, passed_inv, details_inv = ResponseEvaluator.evaluate(
+        "instruction_following", invalid_resp, schema_definition=schema
+    )
+    assert passed_inv is False
+    assert score_inv < score
+
+def test_evaluator_reasoning_quality():
+    good_reasoning = "Step 1: Parse the equation 2x + 4 = 10.\nStep 2: Subtract 4 from both sides to get 2x = 6.\nTherefore, x = 3."
+    score, passed, details = ResponseEvaluator.evaluate(
+        "reasoning_quality", good_reasoning, expected_answer="3"
+    )
+    assert passed is True
+    assert score >= 0.70
+
+def test_calculate_percentiles_and_std_dev():
+    from app.engine.evaluator import calculate_percentiles
+    latencies = [100.0, 110.0, 120.0, 130.0, 140.0, 150.0, 200.0]
+    stats = calculate_percentiles(latencies)
+    assert stats["mean"] > 100.0
+    assert stats["std_dev"] > 0.0
+    assert stats["p50"] == 130.0
+    assert stats["p99"] >= stats["p95"] >= stats["p90"] >= stats["p50"]
+
+def test_evaluate_consistency():
+    from app.engine.evaluator import evaluate_consistency
+    identical = ["The answer is 42.", "The answer is 42.", "The answer is 42."]
+    score_ident, details_ident = evaluate_consistency(identical)
+    assert score_ident == 1.0
+    assert details_ident["is_consistent"] is True
+
+    divergent = ["The capital is Paris.", "The capital is London.", "The capital is Tokyo."]
+    score_div, details_div = evaluate_consistency(divergent)
+    assert score_div < 0.80
+
+def test_calculate_cost_and_energy():
+    from app.engine.evaluator import calculate_cost_and_energy
+    mock_telemetry = [{"gpu_utilization": [{"power_watts": 45.0}]}]
+    cost = calculate_cost_and_energy(
+        prompt_tokens=1000,
+        output_tokens=500,
+        duration_seconds=10.0,
+        telemetry_samples=mock_telemetry,
+        cost_input_per_1k=0.0015,
+        cost_output_per_1k=0.0020,
+        electricity_cost_kwh=0.12
+    )
+    assert cost["token_cost_usd"] == 0.0015 + 0.0010  # 0.0025
+    assert cost["energy_consumption_kwh"] > 0.0
+    assert cost["total_cost_usd"] >= 0.0025

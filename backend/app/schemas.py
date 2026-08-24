@@ -38,12 +38,18 @@ class ProviderResponse(ProviderBase):
 # --- MODELS ---
 class ModelBase(BaseModel):
     name: str
+    version: Optional[str] = "1.0.0"
+    version_hash: Optional[str] = None
+    is_immutable: Optional[bool] = True
+    changelog: Optional[str] = None
     revision: Optional[str] = None
     quantization: Optional[str] = None
     size_bytes: Optional[int] = None
     context_length: Optional[int] = None
     parameters: Optional[str] = None
     architecture: Optional[str] = None
+    cost_input_per_1k: Optional[float] = 0.0
+    cost_output_per_1k: Optional[float] = 0.0
 
 class ModelCreate(ModelBase):
     pass
@@ -59,7 +65,10 @@ class ModelResponse(ModelBase):
 class PromptBase(BaseModel):
     category: str
     prompt: str
+    version: Optional[str] = "1.0.0"
+    version_hash: Optional[str] = None
     system_prompt: Optional[str] = None
+    system_prompt_version: Optional[str] = "1.0.0"
     expected_answer: Optional[str] = None
     evaluator: Optional[str] = "exact_match"
     schema_definition: Optional[Dict[str, Any]] = None
@@ -81,6 +90,10 @@ class PromptResponse(PromptBase):
 class PromptSuiteBase(BaseModel):
     name: str
     description: Optional[str] = None
+    version: Optional[str] = "1.0.0"
+    version_hash: Optional[str] = None
+    is_immutable: Optional[bool] = True
+    author: Optional[str] = "System"
 
 class PromptSuiteCreate(PromptSuiteBase):
     prompts: Optional[List[PromptCreate]] = []
@@ -107,6 +120,9 @@ class BenchmarkConfigBase(BaseModel):
     concurrency: Optional[int] = 1
     request_rate: Optional[float] = None
     use_identical_settings: Optional[bool] = True
+    dataset_version_snapshot: Optional[Dict[str, Any]] = None
+    model_version_snapshot: Optional[Dict[str, Any]] = None
+    local_electricity_cost_kwh: Optional[float] = 0.12
 
 class BenchmarkConfigCreate(BenchmarkConfigBase):
     model_name: Optional[str] = None
@@ -118,8 +134,8 @@ class BenchmarkConfigCreate(BenchmarkConfigBase):
 
 class BenchmarkConfigResponse(BenchmarkConfigBase):
     id: int
-    model_id: int
-    model: ModelResponse
+    model_id: Optional[int] = None
+    model: Optional[ModelResponse] = None
     config_hash: str
     created_at: datetime
 
@@ -157,10 +173,38 @@ class BenchmarkRunResponse(BaseModel):
     duration_seconds: float
     hardware_info: Optional[Dict[str, Any]] = None
     error_message: Optional[str] = None
+    
+    # Statistical Latency & Throughput Metrics
     mean_ttft_ms: Optional[float] = None
+    std_dev_ttft_ms: Optional[float] = None
     mean_tpot_ms: Optional[float] = None
+    std_dev_latency_ms: Optional[float] = None
+    p50_latency_ms: Optional[float] = None
+    p90_latency_ms: Optional[float] = None
+    p95_latency_ms: Optional[float] = None
+    p99_latency_ms: Optional[float] = None
+    
+    # Quality & Reliability Metrics
     json_success_rate: Optional[float] = None
     accuracy_score: Optional[float] = None
+    instruction_following_rate: Optional[float] = None
+    reasoning_score: Optional[float] = None
+    consistency_score: Optional[float] = None
+    hallucination_rate: Optional[float] = None
+    llm_judge_score: Optional[float] = None
+    human_judge_alignment: Optional[float] = None
+
+    # Financial Cost & Energy Consumption Metrics
+    total_cost_usd: Optional[float] = 0.0
+    cost_per_1k_tokens: Optional[float] = 0.0
+    cost_per_1m_tokens: Optional[float] = 0.0
+    energy_consumption_kwh: Optional[float] = 0.0
+    energy_cost_usd: Optional[float] = 0.0
+
+    # Immutable Snapshots
+    dataset_snapshot: Optional[Dict[str, Any]] = None
+    model_snapshot: Optional[Dict[str, Any]] = None
+
     created_at: datetime
 
     class Config:

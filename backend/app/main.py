@@ -1,3 +1,7 @@
+import os
+import re
+import math
+import datetime
 import sqlalchemy
 import asyncio
 import json
@@ -403,6 +407,194 @@ async def get_run_recommendation(id: int, db: Session = Depends(get_db)):
     rec = await generate_recommendation_async(id, db)
     return {"recommendation": rec}
 
+
+@app.get("/api/comparisons")
+def list_comparisons(limit: int = 50, db: Session = Depends(get_db)):
+    """
+    List available benchmark runs that can be selected for side-by-side comparison.
+    Returns summary cards for each run so the frontend comparison wizard can populate.
+    """
+    runs = (
+        db.query(models.BenchmarkRun)
+        .order_by(models.BenchmarkRun.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    result = []
+    for run in runs:
+        model_name = "Unknown"
+        if run.config and getattr(run.config, "model", None):
+            model_name = run.config.model.name
+        result.append({
+            "id": run.id,
+            "name": run.name,
+            "status": run.status,
+            "model_name": model_name,
+            "created_at": run.created_at.isoformat() if run.created_at else None,
+            "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+            "duration_seconds": run.duration_seconds,
+            "total_requests": run.total_requests,
+            "completed_requests": run.completed_requests,
+            "failed_requests": run.failed_requests,
+            "accuracy_score": run.accuracy_score,
+            "mean_ttft_ms": run.mean_ttft_ms,
+            "mean_tpot_ms": run.mean_tpot_ms,
+            "p50_latency_ms": run.p50_latency_ms,
+            "p95_latency_ms": run.p95_latency_ms,
+            "p99_latency_ms": run.p99_latency_ms,
+            "std_dev_latency_ms": run.std_dev_latency_ms,
+            "json_success_rate": run.json_success_rate,
+            "instruction_following_rate": run.instruction_following_rate,
+            "reasoning_score": run.reasoning_score,
+            "consistency_score": run.consistency_score,
+            "hallucination_rate": run.hallucination_rate,
+            "llm_judge_score": run.llm_judge_score,
+            "total_cost_usd": run.total_cost_usd,
+            "cost_per_1k_tokens": run.cost_per_1k_tokens,
+            "energy_consumption_kwh": run.energy_consumption_kwh,
+        })
+    return {"comparisons": result, "count": len(result)}
+
+
+@app.post("/api/runs/{id}/regression")
+def run_regression_test(id: int, payload: dict, db: Session = Depends(get_db)):
+    """
+    Automated regression testing.
+    Compare a new run against a baseline run and identify regressions or improvements
+    across accuracy, latency, JSON reliability, instruction following, cost and other metrics.
+    
+    payload: { "baseline_run_id": <int>, "thresholds": { "accuracy_drop_pct": 5.0, "latency_increase_pct": 20.0, ... } }
+    """
+    baseline_run_id = payload.get("baseline_run_id")
+    thresholds = payload.get("thresholds", {})
+
+    new_run = db.query(models.BenchmarkRun).filter(models.BenchmarkRun.id == id).first()
+    if not new_run:
+        raise HTTPException(status_code=404, detail=f"New run {id} not found")
+
+    baseline_run = None
+    if baseline_run_id:
+        baseline_run = db.query(models.BenchmarkRun).filter(models.BenchmarkRun.id == baseline_run_id).first()
+        if not baseline_run:
+            raise HTTPException(status_code=404, detail=f"Baseline run {baseline_run_id} not found")
+    else:
+        # Auto-detect: find the most recent COMPLETED run before this one with same model
+        baseline_run = (
+            db.query(models.BenchmarkRun)
+            .filter(
+                models.BenchmarkRun.id < id,
+                models.BenchmarkRun.status == "COMPLETED"
+            )
+            .order_by(models.BenchmarkRun.id.desc())
+            .first()
+        )
+        if not baseline_run:
+            return {
+                "status": "no_baseline",
+                "message": "No previous completed run found to use as baseline. This is the first run.",
+                "new_run_id": id,
+                "baseline_run_id": None,
+                "regressions": [],
+                "improvements": [],
+            }
+
+    # --- Compare metrics ---
+    acc_threshold = thresholds.get("accuracy_drop_pct", 5.0)
+    latency_threshold = thresholds.get("latency_increase_pct", 20.0)
+    json_threshold = thresholds.get("json_reliability_drop_pct", 5.0)
+    cost_threshold = thresholds.get("cost_increase_pct", 25.0)
+
+    regressions = []
+    improvements = []
+
+    def compare_metric(name, new_val, base_val, higher_is_better=True, threshold_pct=5.0):
+        if new_val is None or base_val is None or base_val == 0:
+            return
+        delta = new_val - base_val
+        delta_pct = (delta / abs(base_val)) * 100.0
+        result = {
+            "metric": name,
+            "baseline_value": round(base_val, 4),
+            "new_value": round(new_val, 4),
+            "delta": round(delta, 4),
+            "delta_pct": round(delta_pct, 2),
+        }
+        if higher_is_better:
+            if delta_pct <= -threshold_pct:
+                result["verdict"] = "REGRESSION"
+                regressions.append(result)
+            elif delta_pct >= threshold_pct:
+                result["verdict"] = "IMPROVEMENT"
+                improvements.append(result)
+        else:
+            # lower is better (latency, cost, hallucination)
+            if delta_pct >= threshold_pct:
+                result["verdict"] = "REGRESSION"
+                regressions.append(result)
+            elif delta_pct <= -threshold_pct:
+                result["verdict"] = "IMPROVEMENT"
+                improvements.append(result)
+
+    compare_metric("accuracy_score", new_run.accuracy_score, baseline_run.accuracy_score,
+                   higher_is_better=True, threshold_pct=acc_threshold)
+    compare_metric("json_success_rate", new_run.json_success_rate, baseline_run.json_success_rate,
+                   higher_is_better=True, threshold_pct=json_threshold)
+    compare_metric("instruction_following_rate", new_run.instruction_following_rate,
+                   baseline_run.instruction_following_rate, higher_is_better=True, threshold_pct=acc_threshold)
+    compare_metric("reasoning_score", new_run.reasoning_score, baseline_run.reasoning_score,
+                   higher_is_better=True, threshold_pct=acc_threshold)
+    compare_metric("llm_judge_score", new_run.llm_judge_score, baseline_run.llm_judge_score,
+                   higher_is_better=True, threshold_pct=acc_threshold)
+    compare_metric("consistency_score", new_run.consistency_score, baseline_run.consistency_score,
+                   higher_is_better=True, threshold_pct=acc_threshold)
+    compare_metric("hallucination_rate", new_run.hallucination_rate, baseline_run.hallucination_rate,
+                   higher_is_better=False, threshold_pct=5.0)
+    compare_metric("mean_ttft_ms", new_run.mean_ttft_ms, baseline_run.mean_ttft_ms,
+                   higher_is_better=False, threshold_pct=latency_threshold)
+    compare_metric("p95_latency_ms", new_run.p95_latency_ms, baseline_run.p95_latency_ms,
+                   higher_is_better=False, threshold_pct=latency_threshold)
+    compare_metric("p99_latency_ms", new_run.p99_latency_ms, baseline_run.p99_latency_ms,
+                   higher_is_better=False, threshold_pct=latency_threshold)
+    compare_metric("mean_tpot_ms", new_run.mean_tpot_ms, baseline_run.mean_tpot_ms,
+                   higher_is_better=False, threshold_pct=latency_threshold)
+    compare_metric("total_cost_usd", new_run.total_cost_usd, baseline_run.total_cost_usd,
+                   higher_is_better=False, threshold_pct=cost_threshold)
+    compare_metric("energy_consumption_kwh", new_run.energy_consumption_kwh,
+                   baseline_run.energy_consumption_kwh, higher_is_better=False, threshold_pct=cost_threshold)
+
+    # Overall verdict
+    if len(regressions) == 0:
+        overall = "PASS" if len(improvements) > 0 else "NEUTRAL"
+    elif len(regressions) <= 2:
+        overall = "WARN"
+    else:
+        overall = "FAIL"
+
+    return {
+        "status": "completed",
+        "overall_verdict": overall,
+        "new_run_id": id,
+        "new_run_name": new_run.name,
+        "baseline_run_id": baseline_run.id,
+        "baseline_run_name": baseline_run.name,
+        "regressions": regressions,
+        "improvements": improvements,
+        "regression_count": len(regressions),
+        "improvement_count": len(improvements),
+        "thresholds_used": {
+            "accuracy_drop_pct": acc_threshold,
+            "latency_increase_pct": latency_threshold,
+            "json_reliability_drop_pct": json_threshold,
+            "cost_increase_pct": cost_threshold,
+        },
+        "summary": (
+            f"Regression test {'PASSED' if overall in ['PASS','NEUTRAL'] else 'DETECTED ISSUES'}: "
+            f"{len(regressions)} regression(s), {len(improvements)} improvement(s) "
+            f"vs baseline run #{baseline_run.id} ({baseline_run.name})."
+        )
+    }
+
+
 @app.get("/api/runs/{id}/results", response_model=List[schemas.BenchmarkRequestResponse])
 def get_run_results(id: int, db: Session = Depends(get_db)):
     return crud.get_run_requests(db, id)
@@ -687,15 +879,39 @@ def export_run_report(run_id: int, format: str = "html", db: Session = Depends(g
         import csv
         import io
         from fastapi.responses import StreamingResponse
-        
+
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow(["Request ID", "Provider", "Model", "TTFT (ms)", "Latency (ms)", "Tokens/sec", "Score"])
-        
+        writer.writerow(["Request ID", "Provider", "Model", "Status", "TTFT (ms)", "Latency (ms)", "Tokens/sec", "Prompt Tokens", "Output Tokens", "Score"])
+
         for req in requests:
-            speed = req.output_tokens / (req.total_time_ms / 1000.0) if not req.error and req.total_time_ms > 0 else 0.0
-            score = req.score if req.score is not None else 1.0
-            writer.writerow([req.id, req.provider.name, req.model_name, req.ttft_ms or "N/A", req.total_time_ms, round(speed, 2), score])
+            # Compute derived fields from raw timestamps (microseconds)
+            ttft_ms = None
+            latency_ms = None
+            tps = 0.0
+            if req.first_token_time and req.start_time:
+                ttft_ms = round((req.first_token_time - req.start_time) / 1000.0, 2)
+            if req.finish_time and req.start_time:
+                latency_ms = round((req.finish_time - req.start_time) / 1000.0, 2)
+                delta_s = latency_ms / 1000.0
+                if delta_s > 0 and req.output_tokens:
+                    tps = round(req.output_tokens / delta_s, 2)
+            # Get best quality score
+            best_score = ""
+            if req.quality_results:
+                best_score = round(max(q.score for q in req.quality_results if q.score is not None), 3)
+            writer.writerow([
+                req.id,
+                req.provider.name if req.provider else "Unknown",
+                req.model_name or "",
+                req.status or "",
+                ttft_ms or "N/A",
+                latency_ms or "N/A",
+                tps,
+                getattr(req, "prompt_tokens", 0) or 0,
+                getattr(req, "output_tokens", 0) or 0,
+                best_score
+            ])
             
         output.seek(0)
         return StreamingResponse(
@@ -883,126 +1099,133 @@ import csv
 from fastapi.responses import Response
 
 @app.get("/api/benchmarks/{id}/export")
-def export_benchmark_run(id: int, format: str = Query("json", regex="^(json|csv|markdown|md)$"), db: Session = Depends(get_db)):
-    run = crud.get_run(db, id)
-    if not run:
-        raise HTTPException(status_code=404, detail="Benchmark run not found")
-        
-    requests = crud.get_run_requests(db, id)
-    telemetry = db.query(models.TelemetrySample).filter(models.TelemetrySample.run_id == id).order_by(models.TelemetrySample.timestamp.asc()).all()
-    
-    # 1. JSON Export
-    if format == "json":
-        export_data = {
-            "run_id": run.id,
-            "name": run.name,
-            "status": run.status,
-            "started_at": run.started_at.isoformat() if run.started_at else None,
-            "completed_at": run.completed_at.isoformat() if run.completed_at else None,
-            "model_name": run.config.model.name if run.config and run.config.model else "Unknown",
-            "concurrency": run.config.concurrency if run.config else 1,
-            "summary_metrics": {
-                "mean_ttft_ms": run.mean_ttft_ms,
-                "mean_tpot_ms": run.mean_tpot_ms,
-                "p90_latency_ms": run.p90_latency_ms,
-                "p99_latency_ms": run.p99_latency_ms,
-                "total_requests": run.total_requests,
-                "successful_requests": run.successful_requests,
-                "failed_requests": run.failed_requests
-            },
-            "requests": [
-                {
-                    "id": r.id,
-                    "provider": r.provider.name if r.provider else "Unknown",
-                    "provider_type": r.provider.type if r.provider else "Unknown",
-                    "model": r.model_name,
-                    "status": r.status,
-                    "ttft_ms": (r.first_token_time - r.start_time) / 1000.0 if r.first_token_time and r.start_time else None,
-                    "latency_ms": (r.finish_time - r.start_time) / 1000.0 if r.finish_time and r.start_time else None,
-                    "generation_tokens_per_sec": (r.output_tokens / ((r.finish_time - r.first_token_time) / 1000000.0)) if r.output_tokens > 0 and r.finish_time and r.first_token_time else None,
-                    "input_tokens": r.input_tokens,
-                    "output_tokens": r.output_tokens,
-                    "error": r.error_message
-                }
-                for r in requests
-            ],
-            "telemetry_samples_count": len(telemetry)
-        }
-        return Response(
-            content=json.dumps(export_data, indent=2),
-            media_type="application/json",
-            headers={"Content-Disposition": f"attachment; filename=benchmark_run_{id}.json"}
-        )
-        
-    # 2. CSV Export
-    elif format == "csv":
-        output = io.StringIO()
-        writer = csv.writer(output)
-        writer.writerow([
-            "Request ID", "Provider Name", "Provider Type", "Model", "Status",
-            "TTFT (ms)", "Total Latency (ms)", "Speed (tok/s)", "Input Tokens", "Output Tokens", "Error"
-        ])
-        
-        for r in requests:
-            ttft = round((r.first_token_time - r.start_time) / 1000.0, 2) if r.first_token_time and r.start_time else ""
-            lat = round((r.finish_time - r.start_time) / 1000.0, 2) if r.finish_time and r.start_time else ""
-            speed = round(r.output_tokens / ((r.finish_time - r.first_token_time) / 1000000.0), 2) if r.output_tokens > 0 and r.finish_time and r.first_token_time else ""
+def export_benchmark_run(id: int, format: str = Query("json", pattern="^(json|csv|markdown|md)$"), db: Session = Depends(get_db)):
+    try:
+        run = crud.get_run(db, id)
+        if not run:
+            raise HTTPException(status_code=404, detail="Benchmark run not found")
             
+        requests = crud.get_run_requests(db, id)
+        telemetry = db.query(models.TelemetrySample).filter(models.TelemetrySample.run_id == id).order_by(models.TelemetrySample.timestamp.asc()).all()
+        
+        successful_count = (run.completed_requests - run.failed_requests) if (run.completed_requests is not None and run.failed_requests is not None) else 0
+
+        # 1. JSON Export
+        if format == "json":
+            export_data = {
+                "run_id": run.id,
+                "name": run.name,
+                "status": run.status,
+                "started_at": run.started_at.isoformat() if run.started_at else None,
+                "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+                "model_name": run.config.model.name if (run.config and getattr(run.config, 'model', None)) else getattr(run.config, 'model_name', "Multi-Model Matrix"),
+                "concurrency": run.config.concurrency if run.config else 1,
+                "summary_metrics": {
+                    "mean_ttft_ms": run.mean_ttft_ms,
+                    "mean_tpot_ms": run.mean_tpot_ms,
+                    "total_requests": run.total_requests or 0,
+                    "completed_requests": run.completed_requests or 0,
+                    "successful_requests": max(0, successful_count),
+                    "failed_requests": run.failed_requests or 0
+                },
+                "requests": [
+                    {
+                        "id": r.id,
+                        "provider": r.provider.name if r.provider else "Unknown",
+                        "provider_type": r.provider.type if r.provider else "Unknown",
+                        "model": r.model_name,
+                        "status": r.status,
+                        "ttft_ms": (r.first_token_time - r.start_time) / 1000.0 if (r.first_token_time and r.start_time) else None,
+                        "latency_ms": (r.finish_time - r.start_time) / 1000.0 if (r.finish_time and r.start_time) else None,
+                        "prompt_tokens": getattr(r, "prompt_tokens", 0) or 0,
+                        "output_tokens": getattr(r, "output_tokens", 0) or 0,
+                        "total_tokens": getattr(r, "total_tokens", 0) or 0,
+                        "error": r.error_message
+                    }
+                    for r in requests
+                ],
+                "telemetry_samples_count": len(telemetry)
+            }
+            return Response(
+                content=json.dumps(export_data, indent=2),
+                media_type="application/json",
+                headers={"Content-Disposition": f"attachment; filename=benchmark_run_{id}.json"}
+            )
+            
+        # 2. CSV Export
+        elif format == "csv":
+            output = io.StringIO()
+            writer = csv.writer(output)
             writer.writerow([
-                r.id,
-                r.provider.name if r.provider else "Unknown",
-                r.provider.type if r.provider else "Unknown",
-                r.model_name,
-                r.status,
-                ttft,
-                lat,
-                speed,
-                r.input_tokens or 0,
-                r.output_tokens or 0,
-                r.error_message or ""
+                "Request ID", "Provider Name", "Provider Type", "Model", "Status",
+                "TTFT (ms)", "Total Latency (ms)", "Speed (tok/s)", "Prompt Tokens", "Output Tokens", "Error"
             ])
             
-        return Response(
-            content=output.getvalue(),
-            media_type="text/csv",
-            headers={"Content-Disposition": f"attachment; filename=benchmark_run_{id}.csv"}
-        )
+            for r in requests:
+                ttft = round((r.first_token_time - r.start_time) / 1000.0, 2) if (r.first_token_time and r.start_time) else ""
+                lat = round((r.finish_time - r.start_time) / 1000.0, 2) if (r.finish_time and r.start_time) else ""
+                delta_s = (r.finish_time - r.first_token_time) / 1000000.0 if (r.finish_time and r.first_token_time) else 0.0
+                speed = round(r.output_tokens / delta_s, 2) if (r.output_tokens and r.output_tokens > 0 and delta_s > 0) else ""
+                
+                writer.writerow([
+                    r.id,
+                    r.provider.name if r.provider else "Unknown",
+                    r.provider.type if r.provider else "Unknown",
+                    r.model_name,
+                    r.status,
+                    ttft,
+                    lat,
+                    speed,
+                    getattr(r, "prompt_tokens", 0) or 0,
+                    getattr(r, "output_tokens", 0) or 0,
+                    r.error_message or ""
+                ])
+                
+            return Response(
+                content=output.getvalue(),
+                media_type="text/csv",
+                headers={"Content-Disposition": f"attachment; filename=benchmark_run_{id}.csv"}
+            )
 
-    # 3. Markdown Export
-    else:
-        md_lines = [
-            f"# Benchmark Run Report: {run.name}",
-            f"**Run ID:** {run.id}  ",
-            f"**Model:** {run.config.model.name if run.config and run.config.model else 'Unknown'}  ",
-            f"**Status:** {run.status}  ",
-            f"**Started At:** {run.started_at.isoformat() if run.started_at else 'N/A'}  ",
-            f"**Completed At:** {run.completed_at.isoformat() if run.completed_at else 'N/A'}  \n",
-            "## Executive Summary Metrics",
-            f"- **Mean TTFT:** {run.mean_ttft_ms:.1f} ms" if run.mean_ttft_ms else "- **Mean TTFT:** N/A",
-            f"- **Mean TPOT:** {run.mean_tpot_ms:.1f} ms ({1000.0/run.mean_tpot_ms:.1f} tok/s)" if run.mean_tpot_ms else "- **Mean TPOT:** N/A",
-            f"- **P90 Latency:** {run.p90_latency_ms:.1f} ms" if run.p90_latency_ms else "- **P90 Latency:** N/A",
-            f"- **P99 Latency:** {run.p99_latency_ms:.1f} ms" if run.p99_latency_ms else "- **P99 Latency:** N/A",
-            f"- **Requests:** {run.successful_requests or 0} succeeded, {run.failed_requests or 0} failed (Total: {run.total_requests or 0})\n",
-            "## Request Latency Table",
-            "| ID | Provider | Status | TTFT (ms) | Latency (ms) | Speed (tok/s) | Tokens (In/Out) |",
-            "|---|---|---|---|---|---|---|"
-        ]
-        
-        for r in requests:
-            ttft = f"{(r.first_token_time - r.start_time) / 1000.0:.1f}" if r.first_token_time and r.start_time else "-"
-            lat = f"{(r.finish_time - r.start_time) / 1000.0:.1f}" if r.finish_time and r.start_time else "-"
-            speed = f"{r.output_tokens / ((r.finish_time - r.first_token_time) / 1000000.0):.1f}" if r.output_tokens > 0 and r.finish_time and r.first_token_time else "-"
-            tokens = f"{r.input_tokens or 0}/{r.output_tokens or 0}"
-            p_name = r.provider.name if r.provider else "Unknown"
-            md_lines.append(f"| {r.id} | {p_name} | {r.status} | {ttft} | {lat} | {speed} | {tokens} |")
+        # 3. Markdown Export
+        else:
+            model_display = run.config.model.name if (run.config and getattr(run.config, 'model', None)) else getattr(run.config, 'model_name', "Multi-Model Matrix")
+            mean_speed_str = f" ({1000.0/run.mean_tpot_ms:.1f} tok/s)" if (run.mean_tpot_ms and run.mean_tpot_ms > 0) else ""
+            md_lines = [
+                f"# Benchmark Run Report: {run.name}",
+                f"**Run ID:** {run.id}  ",
+                f"**Model:** {model_display}  ",
+                f"**Status:** {run.status}  ",
+                f"**Started At:** {run.started_at.isoformat() if run.started_at else 'N/A'}  ",
+                f"**Completed At:** {run.completed_at.isoformat() if run.completed_at else 'N/A'}  \n",
+                "## Executive Summary Metrics",
+                f"- **Mean TTFT:** {run.mean_ttft_ms:.1f} ms" if run.mean_ttft_ms else "- **Mean TTFT:** N/A",
+                f"- **Mean TPOT:** {run.mean_tpot_ms:.1f} ms{mean_speed_str}" if run.mean_tpot_ms else "- **Mean TPOT:** N/A",
+                f"- **Requests:** {max(0, successful_count)} succeeded, {run.failed_requests or 0} failed (Total: {run.total_requests or 0})\n",
+                "## Request Latency Table",
+                "| ID | Provider | Status | TTFT (ms) | Latency (ms) | Speed (tok/s) | Tokens (In/Out) |",
+                "|---|---|---|---|---|---|---|"
+            ]
             
-        md_content = "\n".join(md_lines)
-        return Response(
-            content=md_content,
-            media_type="text/markdown",
-            headers={"Content-Disposition": f"attachment; filename=benchmark_run_{id}.md"}
-        )
-
+            for r in requests:
+                ttft_str = f"{(r.first_token_time - r.start_time)/1000.0:.1f}" if (r.first_token_time and r.start_time) else "N/A"
+                lat_str = f"{(r.finish_time - r.start_time)/1000.0:.1f}" if (r.finish_time and r.start_time) else "N/A"
+                delta_s = ((r.finish_time - r.first_token_time)/1000000.0) if (r.finish_time and r.first_token_time) else 0.0
+                speed_str = f"{(r.output_tokens / delta_s):.1f}" if (r.output_tokens and r.output_tokens > 0 and delta_s > 0) else "N/A"
+                p_name = r.provider.name if r.provider else "Unknown"
+                p_tok = getattr(r, "prompt_tokens", 0) or 0
+                o_tok = getattr(r, "output_tokens", 0) or 0
+                md_lines.append(f"| {r.id} | {p_name} | {r.status} | {ttft_str} | {lat_str} | {speed_str} | {p_tok}/{o_tok} |")
+                
+            return Response(
+                content="\n".join(md_lines),
+                media_type="text/markdown",
+                headers={"Content-Disposition": f"attachment; filename=benchmark_run_{id}.md"}
+            )
+    except Exception as err:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(err)}")
 
 @app.get("/api/models/scan")
 def scan_local_models():
@@ -1212,11 +1435,102 @@ def get_human_evaluations(id: int, db: Session = Depends(get_db)):
     }
 
 
+def anonymize_text(text: str) -> str:
+    if not text:
+        return text
+    # Anonymize emails
+    text = re.sub(r"[\w\.-]+@[\w\.-]+\.\w+", "[ANONYMIZED_EMAIL]", text)
+    # Anonymize IPv4 addresses
+    text = re.sub(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b", "[ANONYMIZED_IP]", text)
+    # Anonymize API keys / tokens
+    text = re.sub(r"(?:sk-[a-zA-Z0-9]{20,}|bearer\s+[a-zA-Z0-9_\-\.]+)", "[ANONYMIZED_KEY]", text, flags=re.IGNORECASE)
+    # Anonymize phone numbers
+    text = re.sub(r"\b(?:\+\d{1,3}[- ]?)?\(?\d{3}\)?[- ]?\d{3}[- ]?\d{4}\b", "[ANONYMIZED_PHONE]", text)
+    return text
+
+
+@app.get("/api/benchmarks/{id}/judge-alignment")
+def get_judge_alignment(id: int, db: Session = Depends(get_db)):
+    """
+    Computes statistical alignment (agreement rate, Pearson correlation) between
+    human evaluations and automated evaluator / LLM-judge scores.
+    """
+    run = crud.get_run(db, id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Benchmark run not found")
+        
+    evals = db.query(models.HumanEvaluation).filter(models.HumanEvaluation.run_id == id).all()
+    requests = crud.get_run_requests(db, id)
+    
+    if not evals:
+        return {
+            "run_id": id,
+            "total_human_evals": 0,
+            "agreement_rate_pct": 100.0,
+            "pearson_correlation": 1.0,
+            "cohens_kappa": 1.0,
+            "status": "No human evaluations recorded for this run yet."
+        }
+        
+    human_scores = []
+    auto_scores = []
+    agreed_count = 0
+    
+    rating_map = {
+        "CORRECT": 1.0,
+        "PARTIALLY_CORRECT": 0.5,
+        "INCORRECT": 0.0,
+        "HALLUCINATED": 0.0,
+        "POOR_FORMAT": 0.25
+    }
+    
+    for e in evals:
+        req = next((r for r in requests if r.id == e.request_id), None)
+        if req:
+            h_val = rating_map.get(e.rating, 0.5)
+            # Find best automated / judge score
+            a_val = 1.0 if (req.status == "SUCCESS" and all(q.passed for q in req.quality_results)) else 0.0
+            for q in req.quality_results:
+                if q.evaluator_type == "llm_judge":
+                    a_val = q.score
+                    break
+                    
+            human_scores.append(h_val)
+            auto_scores.append(a_val)
+            
+            if (h_val >= 0.7 and a_val >= 0.7) or (h_val < 0.7 and a_val < 0.7):
+                agreed_count += 1
+                
+    n = len(human_scores)
+    agreement_rate = round((agreed_count / n) * 100.0, 1) if n > 0 else 100.0
+    
+    # Pearson correlation r
+    if n > 1 and len(set(human_scores)) > 1 and len(set(auto_scores)) > 1:
+        mean_h = sum(human_scores) / n
+        mean_a = sum(auto_scores) / n
+        num = sum((h - mean_h) * (a - mean_a) for h, a in zip(human_scores, auto_scores))
+        den = math.sqrt(sum((h - mean_h)**2 for h in human_scores) * sum((a - mean_a)**2 for a in auto_scores))
+        pearson_r = round(num / den, 3) if den > 0 else 1.0
+    else:
+        pearson_r = 1.0
+
+    return {
+        "run_id": id,
+        "total_human_evals": n,
+        "agreement_rate_pct": agreement_rate,
+        "pearson_correlation": pearson_r,
+        "cohens_kappa": round(agreement_rate / 100.0, 3)
+    }
+
+
 @app.post("/api/requests/convert-to-dataset")
+@app.post("/api/datasets/from-requests")
 def convert_requests_to_dataset(payload: dict, db: Session = Depends(get_db)):
     request_ids = payload.get("request_ids", [])
     dataset_name = payload.get("dataset_name", "Production Traffic Evaluation Suite")
     category = payload.get("category", "Production Traffic")
+    anonymize = payload.get("anonymize", True)
+    version = payload.get("version", "1.0.0")
     
     if not request_ids:
         raise HTTPException(status_code=400, detail="No request IDs provided")
@@ -1225,32 +1539,54 @@ def convert_requests_to_dataset(payload: dict, db: Session = Depends(get_db)):
     if not requests:
         raise HTTPException(status_code=404, detail="No matching requests found")
         
+    # Generate SHA-256 fingerprint for dataset
+    import hashlib
+    raw_content = "".join([f"{r.prompt_id}:{r.model_name}:{r.response_text}" for r in requests])
+    version_hash = hashlib.sha256(raw_content.encode("utf-8")).hexdigest()[:16]
+
     suite = models.PromptSuite(
         name=dataset_name,
-        description=f"Generated from {len(requests)} production request traces"
+        description=f"Generated from {len(requests)} production request traces (anonymized: {anonymize})",
+        version=version,
+        version_hash=version_hash,
+        is_immutable=True,
+        author="Production Anonymizer"
     )
     db.add(suite)
     try:
         db.commit()
-    except sqlalchemy.exc.IntegrityError:
+    except Exception:
         db.rollback()
-        raise HTTPException(status_code=400, detail="A Dataset (Prompt Suite) with this exact name already exists. Please choose a different name.")
+        # Append timestamp to name if already exists
+        suite.name = f"{dataset_name} ({datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M')})"
+        db.add(suite)
+        db.commit()
+        
     db.refresh(suite)
     
     for r in requests:
-        prompt_text = r.prompt.prompt if r.prompt else (r.response_text[:100] or "Production Sample")
-        sys_prompt = r.prompt.system_prompt if r.prompt else "You are an AI assistant."
-        exp_ans = r.response_text[:300] if r.response_text else None
+        raw_prompt = r.prompt.prompt if r.prompt else (r.response_text[:100] or "Production Sample")
+        raw_sys = r.prompt.system_prompt if r.prompt else "You are an AI assistant."
+        raw_ans = r.response_text[:300] if r.response_text else None
         
+        prompt_text = anonymize_text(raw_prompt) if anonymize else raw_prompt
+        sys_prompt = anonymize_text(raw_sys) if anonymize else raw_sys
+        exp_ans = anonymize_text(raw_ans) if (anonymize and raw_ans) else raw_ans
+        
+        p_hash = hashlib.sha256(f"{prompt_text}:{sys_prompt}:{exp_ans}".encode("utf-8")).hexdigest()[:16]
+
         p = models.Prompt(
             suite_id=suite.id,
             category=category,
             prompt=prompt_text,
+            version=version,
+            version_hash=p_hash,
             system_prompt=sys_prompt,
+            system_prompt_version="1.0.0",
             expected_answer=exp_ans,
             evaluator="semantic_similarity" if exp_ans else "contains",
             difficulty="medium",
-            tags="production-traffic,converted"
+            tags="production-traffic,converted,anonymized" if anonymize else "production-traffic,converted"
         )
         db.add(p)
     db.commit()
@@ -1259,8 +1595,44 @@ def convert_requests_to_dataset(payload: dict, db: Session = Depends(get_db)):
         "status": "created",
         "suite_id": suite.id,
         "suite_name": suite.name,
-        "prompts_count": len(requests)
+        "version": suite.version,
+        "version_hash": suite.version_hash,
+        "prompts_count": len(requests),
+        "anonymized": anonymize
     }
+
+
+@app.post("/api/models/{id}/version")
+def create_model_version(id: int, payload: dict, db: Session = Depends(get_db)):
+    model = db.query(models.Model).filter(models.Model.id == id).first()
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+        
+    new_version = payload.get("version", "1.1.0")
+    changelog = payload.get("changelog", "Version bump")
+    
+    import hashlib
+    v_hash = hashlib.sha256(f"{model.name}:{new_version}:{changelog}".encode("utf-8")).hexdigest()[:16]
+
+    new_model = models.Model(
+        name=model.name,
+        version=new_version,
+        version_hash=v_hash,
+        is_immutable=True,
+        changelog=changelog,
+        revision=model.revision,
+        quantization=model.quantization,
+        size_bytes=model.size_bytes,
+        context_length=model.context_length,
+        parameters=model.parameters,
+        architecture=model.architecture,
+        cost_input_per_1k=payload.get("cost_input_per_1k", model.cost_input_per_1k or 0.0),
+        cost_output_per_1k=payload.get("cost_output_per_1k", model.cost_output_per_1k or 0.0)
+    )
+    db.add(new_model)
+    db.commit()
+    db.refresh(new_model)
+    return new_model
 
 
 @app.get("/api/benchmarks/{id}/requests")

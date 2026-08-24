@@ -28,12 +28,18 @@ class Model(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False, index=True)
+    version = Column(String, default="1.0.0", index=True)  # Immutable model version string
+    version_hash = Column(String, nullable=True, index=True)  # SHA-256 model weight hash or commit sha
+    is_immutable = Column(Boolean, default=True)
+    changelog = Column(Text, nullable=True)
     revision = Column(String, nullable=True)
     quantization = Column(String, nullable=True)
     size_bytes = Column(BigInteger, nullable=True)
     context_length = Column(Integer, nullable=True)
     parameters = Column(String, nullable=True)  # e.g., "8B"
     architecture = Column(String, nullable=True)
+    cost_input_per_1k = Column(Float, default=0.0)
+    cost_output_per_1k = Column(Float, default=0.0)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     # Relationships
@@ -45,6 +51,10 @@ class PromptSuite(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False, unique=True)
     description = Column(String, nullable=True)
+    version = Column(String, default="1.0.0", index=True)  # Immutable dataset version
+    version_hash = Column(String, nullable=True, index=True)  # SHA-256 dataset fingerprint
+    is_immutable = Column(Boolean, default=True)
+    author = Column(String, default="System")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     # Relationships
@@ -57,9 +67,12 @@ class Prompt(Base):
     suite_id = Column(Integer, ForeignKey("prompt_suites.id", ondelete="CASCADE"), nullable=False)
     category = Column(String, nullable=False, index=True)
     prompt = Column(Text, nullable=False)
+    version = Column(String, default="1.0.0")
+    version_hash = Column(String, nullable=True)
     system_prompt = Column(Text, nullable=True)
+    system_prompt_version = Column(String, default="1.0.0")
     expected_answer = Column(Text, nullable=True)
-    evaluator = Column(String, default="exact_match")  # exact_match, contains, regex, json_schema, custom_python, llm_judge
+    evaluator = Column(String, default="exact_match")  # exact_match, contains, regex, json_schema, semantic_similarity, llm_judge, instruction_following, reasoning_quality
     schema_definition = Column(JSON, nullable=True)  # JSON Schema if validator is json_schema
     difficulty = Column(String, default="medium")
     tags = Column(String, nullable=True)  # Comma separated
@@ -87,6 +100,9 @@ class BenchmarkConfig(Base):
     request_rate = Column(Float, nullable=True)  # req/s
     use_identical_settings = Column(Boolean, default=True)
     config_hash = Column(String, nullable=False, unique=True, index=True)
+    dataset_version_snapshot = Column(JSON, nullable=True)  # Immutable snapshot of evaluated datasets and versions
+    model_version_snapshot = Column(JSON, nullable=True)  # Immutable snapshot of evaluated models and versions
+    local_electricity_cost_kwh = Column(Float, default=0.12)  # Local power rate ($/kWh)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     # Relationships
@@ -108,10 +124,38 @@ class BenchmarkRun(Base):
     duration_seconds = Column(Float, default=0.0)
     hardware_info = Column(JSON, nullable=True)  # CPU, RAM, GPU info snapshot
     error_message = Column(Text, nullable=True)
+    
+    # Statistical Latency & Throughput Metrics
     mean_ttft_ms = Column(Float, nullable=True)
+    std_dev_ttft_ms = Column(Float, nullable=True)
     mean_tpot_ms = Column(Float, nullable=True)
+    std_dev_latency_ms = Column(Float, nullable=True)
+    p50_latency_ms = Column(Float, nullable=True)
+    p90_latency_ms = Column(Float, nullable=True)
+    p95_latency_ms = Column(Float, nullable=True)
+    p99_latency_ms = Column(Float, nullable=True)
+    
+    # Quality & Reliability Metrics
     json_success_rate = Column(Float, nullable=True)
     accuracy_score = Column(Float, nullable=True)
+    instruction_following_rate = Column(Float, nullable=True)
+    reasoning_score = Column(Float, nullable=True)
+    consistency_score = Column(Float, nullable=True)
+    hallucination_rate = Column(Float, nullable=True)
+    llm_judge_score = Column(Float, nullable=True)
+    human_judge_alignment = Column(Float, nullable=True)  # Correlation with human evaluations
+
+    # Financial Cost & Energy Consumption Metrics
+    total_cost_usd = Column(Float, default=0.0)
+    cost_per_1k_tokens = Column(Float, default=0.0)
+    cost_per_1m_tokens = Column(Float, default=0.0)
+    energy_consumption_kwh = Column(Float, default=0.0)
+    energy_cost_usd = Column(Float, default=0.0)
+
+    # Immutable Snapshot
+    dataset_snapshot = Column(JSON, nullable=True)
+    model_snapshot = Column(JSON, nullable=True)
+
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     # Relationships
