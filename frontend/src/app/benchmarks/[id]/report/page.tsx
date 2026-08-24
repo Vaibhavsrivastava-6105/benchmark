@@ -225,9 +225,10 @@ export default function ReportPage() {
   };
   
   return (
-    <div className="max-w-4xl mx-auto bg-white min-h-screen text-black shadow-xl my-8 print:my-0 print:shadow-none p-12 space-y-8 rounded-xl print:rounded-none">
-      {/* Print Controls */}
-      <div className="flex justify-between items-center pb-6 border-b border-gray-200 print:hidden">
+    <div className="flex-1 w-full h-full overflow-y-auto pr-2 pb-24">
+      <div className="max-w-4xl mx-auto bg-white min-h-screen text-black shadow-xl my-8 print:my-0 print:shadow-none p-6 md:p-12 space-y-8 rounded-xl print:rounded-none">
+        {/* Print Controls */}
+        <div className="flex justify-between items-center pb-6 border-b border-gray-200 print:hidden">
         <button 
           onClick={() => router.back()}
           className="flex items-center gap-2 text-gray-500 hover:text-gray-900 transition-colors"
@@ -659,5 +660,6 @@ export default function ReportPage() {
       </section>
       
     </div>
-  );
+  </div>
+);
 }
