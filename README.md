@@ -72,9 +72,9 @@ cd benchmark
 
 4. Launch the FastAPI server:
    ```bash
-   uvicorn app.main:app --port 8006 --reload
+   uvicorn app.main:app --port 8002 --reload
    ```
-   ✅ *Backend is running on `http://127.0.0.1:8006`.*
+   ✅ *Backend is running on `http://127.0.0.1:8002`.*
 
 ---
 
@@ -108,7 +108,7 @@ The platform natively supports 4 distinct inference runtimes. You can use any co
 └──────────────────────────────┬──────────────────────────────┘
                                │
 ┌──────────────────────────────▼──────────────────────────────┐
-│                    FastAPI Backend (:8006)                  │
+│                    FastAPI Backend (:8002)                  │
 └──────┬──────────────┬─────────────────┬──────────────┬──────┘
        │              │                 │              │
 ┌──────▼──────┐┌──────▼──────┐   ┌──────▼──────┐┌──────▼──────┐
@@ -178,19 +178,25 @@ The platform natively supports 4 distinct inference runtimes. You can use any co
 
 ## 🌟 Platform Capabilities
 
-1. **5-Step Benchmark Wizard (`/benchmarks/new`):**
+1. **5-Step Benchmark Wizard (/benchmarks/new):**
    - Configurable temperature, top-p, max tokens, concurrency, warm-ups, repetitions, and baseline regression selection.
-2. **Real-Time Live Telemetry (`/benchmarks/[id]`):**
+2. **10+ Configurable Evaluators:**
+   - Exact Match, Contains, Regex, JSON Schema Validation, Semantic Similarity, Instruction Following, Reasoning Quality, Hallucination Detection, Multi-Response Consistency, and LLM-as-a-Judge.
+3. **Automated Regression Testing & Versioning:**
+   - Immutable versioning for models and prompts (with SHA-256 hashes). POST /api/runs/{id}/regression automatically detects historical baselines and compares 13 critical metrics (Accuracy, TTFT, P99 Latency, Cost, etc.) to yield PASS/WARN/FAIL verdicts.
+4. **Real-Time Live Telemetry (/benchmarks/[id]):**
    - Server-Sent Events (SSE) streaming tokens/sec, TTFT, progress meters, and independent engine terminal log windows.
-3. **Comprehensive Executive Report (`/benchmarks/[id]/report`):**
-   - Quality pass rates, latency distributions (P50, P95, P99), automated failure root-cause categorization, and human evaluation grading.
-4. **Side-by-Side Run Comparison & Dynamic Weight Sliders (`/compare`):**
-   - Dynamic weight sliders with pre-built profiles (*Balanced*, *Local DX*, *Production*, *Low Latency*, *Low VRAM*), signed delta diffs ($\pm\Delta$), and radar charts.
-5. **Pareto-Optimal Use-Case Recommendations (`/compare`):**
+5. **Comprehensive Executive Report (/benchmarks/[id]/report):**
+   - Quality pass rates, latency distributions (P50, P90, P95, P99), automated failure root-cause categorization, and human-vs-LLM judge alignment metrics (Cohen's Kappa, Pearson r).
+6. **Side-by-Side Run Comparison & Dynamic Weight Sliders (/compare):**
+   - Dynamic weight sliders with pre-built profiles (*Balanced*, *Local DX*, *Production*, *Low Latency*, *Low VRAM*), signed delta diffs, and radar charts.
+7. **Pareto-Optimal Use-Case Recommendations (/compare):**
    - Automated identification of *Best for Reasoning*, *Best for Structured Extraction*, *Best for Coding*, *Fastest Engine*, *Most Reliable*, and *Pareto Optimal Ratio*.
-6. **Continuous Evaluation & Traffic-to-Dataset Converter (`/requests`):**
+8. **Continuous Evaluation & Traffic-to-Dataset Converter (/requests):**
    - Convert production request traces into structured evaluation datasets with one click.
-7. **Multi-Format Export:**
+9. **Cost & Energy Analysis:**
+   - Tracks cost per request, 1K tokens, and 1M tokens. Estimates infrastructure energy cost using active GPU wattage (kWh).
+10. **Multi-Format Export:**
    - Download reports and datasets as JSON, CSV, or Markdown.
 
 ---
@@ -208,8 +214,8 @@ This generates a secure, free public URL (e.g. `https://xxxx.trycloudflare.com`)
 
 ## 🛠️ Troubleshooting & FAQ
 
-### 1. Port 8006 is already in use (`[Errno 10048]`)
-On Windows, a previously killed terminal may leave a background Python process listening on port `8006`. Run:
+### 1. Port 8002 is already in use (`[Errno 10048]`)
+On Windows, a previously killed terminal may leave a background Python process listening on port `8002`. Run:
 ```powershell
 Get-Process python | Stop-Process -Force
 ```
@@ -220,3 +226,4 @@ vLLM requires a Linux environment or Windows WSL2 with an NVIDIA GPU. If you are
 
 ### 3. Models not appearing in dropdown
 Click **"Scan Folder"** on the **Model Library (`/models`)** page to auto-index local `.gguf` files, or pull models in Ollama via `ollama pull <model_name>`.
+

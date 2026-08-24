@@ -25,7 +25,7 @@ python -m venv .venv
 # Windows: .venv\Scripts\activate
 # Unix: source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn app.main:app --port 8001
+uvicorn app.main:app --port 8002
 `
 
 ### Manual Setup (Frontend)

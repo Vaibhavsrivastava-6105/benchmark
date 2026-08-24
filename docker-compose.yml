@@ -4,7 +4,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "8002:8002"
     environment:
       - DEMO_MODE=true
       - DATABASE_URL=sqlite:////workspace/benchlab.db
@@ -26,3 +26,4 @@ services:
 
 volumes:
   benchlab_data:
+
