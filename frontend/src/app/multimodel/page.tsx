@@ -182,17 +182,118 @@ export default function MultiModelMatrixPage() {
 
   const uniqueModelNames = Array.from(new Set(models.map(m => m.name)));
 
+  // Strict Interface-Specific Model Filtering
+  const getCompatibleModelsForProvider = (prov: any): { label: string; models: string[]; badge: string }[] => {
+    if (!prov) return [];
+
+    let discovered: string[] = [];
+    if (prov.last_models) {
+      try {
+        const parsed = JSON.parse(prov.last_models);
+        if (Array.isArray(parsed)) discovered = parsed;
+      } catch(e) {}
+    }
+
+    const pType = (prov.type || "").toLowerCase();
+    const pName = (prov.name || "").toLowerCase();
+    const pUrl = (prov.base_url || "").toLowerCase();
+
+    // 1. llama.cpp: Strictly local GGUF models
+    if (pType.includes("llamacpp") || pName.includes("llama.cpp")) {
+      const ggufModels = Array.from(new Set([
+        ...discovered,
+        ...uniqueModelNames.filter(m => m.endsWith(".gguf") || m.includes(".gguf"))
+      ])).filter(Boolean);
+
+      return [{
+        label: "Downloaded GGUF Models (llama.cpp)",
+        models: ggufModels.length > 0 ? ggufModels : [".\\bin\\llama-cpp\\qwen2.5-0.5b-instruct-q4_k_m.gguf"],
+        badge: "📦"
+      }];
+    }
+
+    // 2. Hugging Face Transformers: Strictly Hugging Face PyTorch weights
+    if (pType.includes("transformers") || pName.includes("transformers")) {
+      const hfModels = Array.from(new Set([
+        ...discovered,
+        ...uniqueModelNames.filter(m => (m.includes("/") || m.includes("Qwen") || m.includes("Llama")) && !m.endsWith(".gguf") && !m.includes(":"))
+      ])).filter(Boolean);
+
+      return [{
+        label: "Hugging Face Models (Local PyTorch)",
+        models: hfModels.length > 0 ? hfModels : ["Qwen/Qwen2.5-0.5B-Instruct"],
+        badge: "🤗"
+      }];
+    }
+
+    // 3. Ollama: Strictly models pulled/installed in Ollama
+    if (pName.includes("ollama") || pUrl.includes("11434")) {
+      const ollamaModels = Array.from(new Set([
+        ...discovered,
+        ...uniqueModelNames.filter(m => m.includes(":") || (!m.endsWith(".gguf") && !m.includes("/") && !m.startsWith("gpt-") && !m.startsWith("gemini-") && !m.startsWith("deepseek-")))
+      ])).filter(Boolean);
+
+      return [{
+        label: "Installed Ollama Models",
+        models: ollamaModels.length > 0 ? ollamaModels : ["qwen2.5:0.5b"],
+        badge: "🦙"
+      }];
+    }
+
+    // 4. vLLM: Strictly vLLM served models
+    if (pType.includes("vllm") || pName.includes("vllm")) {
+      const vllmModels = Array.from(new Set([
+        ...discovered,
+        ...uniqueModelNames.filter(m => !m.endsWith(".gguf") && !m.startsWith("gpt-") && !m.startsWith("gemini-") && !m.startsWith("deepseek-"))
+      ])).filter(Boolean);
+
+      return [{
+        label: "vLLM Served Models",
+        models: vllmModels.length > 0 ? vllmModels : ["Qwen/Qwen2.5-0.5B-Instruct"],
+        badge: "⚡"
+      }];
+    }
+
+    // 5. Cloud Providers (OpenAI, Google, DeepSeek)
+    if (pName.includes("openai") || pUrl.includes("openai.com")) {
+      return [{
+        label: "OpenAI Cloud API Models",
+        models: uniqueModelNames.filter(m => m.startsWith("gpt-") || m.startsWith("o1") || m.startsWith("o3")),
+        badge: "☁️"
+      }];
+    }
+
+    if (pName.includes("gemini") || pName.includes("google")) {
+      return [{
+        label: "Google Gemini Cloud Models",
+        models: uniqueModelNames.filter(m => m.startsWith("gemini-")),
+        badge: "☁️"
+      }];
+    }
+
+    if (pName.includes("deepseek")) {
+      return [{
+        label: "DeepSeek Cloud Models",
+        models: uniqueModelNames.filter(m => m.startsWith("deepseek-")),
+        badge: "☁️"
+      }];
+    }
+
+    // Default: Discovered models for this engine
+    return [{
+      label: `${prov.name} Compatible Models`,
+      models: discovered.length > 0 ? discovered : uniqueModelNames,
+      badge: "⚙️"
+    }];
+  };
+
   const addTarget = () => {
     // Pick the next provider in list for easy multi-interface pairing
     const nextProvIndex = targets.length % (providers.length || 1);
     const prov = providers[nextProvIndex] || providers[0];
     
-    let availModels: string[] = [];
-    if (prov && prov.last_models) {
-        try { availModels = JSON.parse(prov.last_models); } catch(e) {}
-    }
-    const combined = Array.from(new Set([...availModels, ...uniqueModelNames])).filter(Boolean);
-    const firstModel = combined[0] || '';
+    const groups = getCompatibleModelsForProvider(prov);
+    const firstModel = groups[0]?.models[0] || '';
 
     setTargets([...targets, { 
       provider_id: prov?.id || 0, 
@@ -208,16 +309,13 @@ export default function MultiModelMatrixPage() {
     const newTargets = [...targets];
     newTargets[index] = { ...newTargets[index], [field]: value };
     
-    // Auto-select first model when provider changes if current model not applicable
+    // Auto-select first compatible model when provider changes if current model not applicable
     if (field === 'provider_id') {
        const p = providers.find(prov => prov.id === value);
-       let availModels: string[] = [];
-       if (p && p.last_models) {
-           try { availModels = JSON.parse(p.last_models); } catch(e) {}
-       }
-       const combined = Array.from(new Set([...availModels, ...uniqueModelNames])).filter(Boolean);
-       if (combined && combined.length > 0 && !combined.includes(newTargets[index].model_name)) {
-           newTargets[index].model_name = combined[0];
+       const groups = getCompatibleModelsForProvider(p);
+       const allCompatModels = groups.flatMap(g => g.models);
+       if (allCompatModels.length > 0 && !allCompatModels.includes(newTargets[index].model_name)) {
+           newTargets[index].model_name = allCompatModels[0];
        }
     }
     
@@ -411,13 +509,7 @@ export default function MultiModelMatrixPage() {
               ) : (
                 targets.map((t, i) => {
                   const currentProv = providers.find(p => p.id === t.provider_id);
-                  let provDiscovered: string[] = [];
-                  if (currentProv && currentProv.last_models) {
-                    try { provDiscovered = JSON.parse(currentProv.last_models); } catch(e) {}
-                  }
-                  // Merge discovered models + all catalog models
-                  const availModels = Array.from(new Set([...provDiscovered, ...uniqueModelNames])).filter(Boolean);
-
+                  const compatGroups = getCompatibleModelsForProvider(currentProv);
                   const estMem = estimateMemoryGB(t.model_name, t.provider_id);
 
                   return (
@@ -461,45 +553,23 @@ export default function MultiModelMatrixPage() {
 
                         {/* Model Select */}
                         <div className="space-y-1">
-                          <label className="text-[10px] font-mono text-zinc-400 block">Model Weight &amp; Name</label>
+                          <label className="text-[10px] font-mono text-zinc-400 block">
+                            Compatible Model for {currentProv?.name?.split(' ')[1] || 'Engine'}
+                          </label>
                           <select 
                             value={t.model_name}
                             onChange={(e) => updateTarget(i, 'model_name', e.target.value)}
                             className="w-full bg-[#16161a] border border-zinc-700 hover:border-zinc-500 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-zinc-400 font-mono"
                           >
-                            {provDiscovered.length > 0 && (
-                              <optgroup label="Discovered on this Engine">
-                                {provDiscovered.map((m: string) => (
-                                  <option key={`disc-${m}`} value={m} className="bg-zinc-900 text-emerald-300 font-medium">
-                                    ★ {m} (Discovered)
+                            {compatGroups.map((group, gIdx) => (
+                              <optgroup key={gIdx} label={group.label}>
+                                {group.models.map((m: string) => (
+                                  <option key={m} value={m} className="bg-zinc-900 text-zinc-100 font-medium">
+                                    {group.badge} {m}
                                   </option>
                                 ))}
                               </optgroup>
-                            )}
-
-                            <optgroup label="Hugging Face / Open Models">
-                              {uniqueModelNames.filter(m => (m.includes('/') || m.includes('instruct') || m.includes('Qwen') || m.includes('Llama') || m.includes('Mistral')) && !m.endsWith('.gguf') && !m.includes(':')).map((m: string) => (
-                                <option key={`hf-${m}`} value={m} className="bg-zinc-900 text-blue-300">
-                                  🤗 {m}
-                                </option>
-                              ))}
-                            </optgroup>
-
-                            <optgroup label="Ollama / llama.cpp GGUF Weights">
-                              {uniqueModelNames.filter(m => m.endsWith('.gguf') || m.includes(':') || m.includes('0.5b') || m.includes('7b')).map((m: string) => (
-                                <option key={`gguf-${m}`} value={m} className="bg-zinc-900 text-amber-300">
-                                  📦 {m}
-                                </option>
-                              ))}
-                            </optgroup>
-
-                            <optgroup label="Cloud API Models (Closed Endpoints)">
-                              {uniqueModelNames.filter(m => m.startsWith('gpt-') || m.startsWith('gemini-') || m.startsWith('deepseek-')).map((m: string) => (
-                                <option key={`cloud-${m}`} value={m} className="bg-zinc-900 text-zinc-400">
-                                  ☁️ {m} (Cloud API)
-                                </option>
-                              ))}
-                            </optgroup>
+                            ))}
                           </select>
                         </div>
                       </div>
