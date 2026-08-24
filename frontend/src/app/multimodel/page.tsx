@@ -17,7 +17,8 @@ import {
   ShieldCheck,
   Sliders,
   HardDrive,
-  Activity
+  Activity,
+  RefreshCw
 } from 'lucide-react';
 
 export default function MultiModelMatrixPage() {
@@ -27,13 +28,14 @@ export default function MultiModelMatrixPage() {
   const [models, setModels] = useState<any[]>([]);
   const [suites, setSuites] = useState<any[]>([]);
   const [hardwareInfo, setHardwareInfo] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isFlushingVram, setIsFlushingVram] = useState(false);
   
   // Explicit targets: {provider_id, model_name}
   const [targets, setTargets] = useState<{provider_id: number, model_name: string}[]>([]);
   const [selectedSuites, setSelectedSuites] = useState<number[]>([]);
   const [sequentialExecution, setSequentialExecution] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([
@@ -69,7 +71,32 @@ export default function MultiModelMatrixPage() {
     }).finally(() => {
       setLoading(false);
     });
+
+    // Live hardware telemetry polling
+    const hwInterval = setInterval(() => {
+      fetch('/api/hardware').then(r => r.ok ? r.json() : null).then(hw => {
+        if (hw) setHardwareInfo(hw);
+      }).catch(() => {});
+    }, 3000);
+    return () => clearInterval(hwInterval);
   }, []);
+
+  const handleFlushVram = async () => {
+    setIsFlushingVram(true);
+    try {
+      const res = await fetch('/api/hardware/flush-vram', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.hardware) {
+          setHardwareInfo(data.hardware);
+        }
+      }
+    } catch(e) {
+      console.error(e);
+    } finally {
+      setIsFlushingVram(false);
+    }
+  };
 
   // Memory Estimator based on model parameter size, quantization, and serving runtime
   const estimateMemoryGB = (modelName: string, providerId: number): number => {
@@ -360,8 +387,20 @@ export default function MultiModelMatrixPage() {
                 <span>Detected GPU:</span>
                 <span className="font-mono text-blue-300 font-semibold">{detectedGpuName}</span>
               </div>
-              <p className="text-[11px] text-zinc-400 font-mono mt-0.5">
-                GPU Space: <span className="text-white font-bold">{detectedGpuVRAMGB} GB VRAM</span> | Currently Free: <span className="text-emerald-400 font-bold">{detectedFreeVRAMGB} GB</span>
+              <p className="text-[11px] text-zinc-400 font-mono mt-0.5 flex items-center gap-1.5 flex-wrap">
+                <span>GPU Space: <strong className="text-white">{detectedGpuVRAMGB} GB VRAM</strong></span>
+                <span className="text-zinc-600">|</span>
+                <span>Currently Free: <strong className="text-emerald-400">{detectedFreeVRAMGB} GB</strong></span>
+                <button
+                  type="button"
+                  onClick={handleFlushVram}
+                  disabled={isFlushingVram}
+                  title="Flush inactive models & tensors from GPU VRAM"
+                  className="inline-flex items-center gap-1 ml-1 text-[10px] font-sans text-zinc-300 hover:text-white bg-zinc-800 hover:bg-zinc-700 px-2 py-0.5 rounded border border-zinc-700 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`h-2.5 w-2.5 ${isFlushingVram ? 'animate-spin text-emerald-400' : ''}`} />
+                  {isFlushingVram ? 'Flushing...' : 'Free Idle VRAM'}
+                </button>
               </p>
             </div>
           </div>

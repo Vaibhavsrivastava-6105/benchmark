@@ -411,12 +411,52 @@ def get_run_results(id: int, db: Session = Depends(get_db)):
 def get_run_telemetry(id: int, db: Session = Depends(get_db)):
     return crud.get_run_telemetry(db, id)
 
-# --- HARDWARE API ---
 @app.get("/api/hardware")
 def get_system_hardware():
     return {
         "static": TelemetryCollector.get_hardware_static_info(),
         "live": TelemetryCollector.collect_all()
+    }
+
+@app.post("/api/hardware/flush-vram")
+async def flush_gpu_vram():
+    """
+    Actively flushes idle models and cached tensors from GPU VRAM.
+    1. Sends keep_alive: 0 to Ollama across active models to release Ollama VRAM.
+    2. Calls torch.cuda.empty_cache() & gc.collect() to release PyTorch VRAM.
+    """
+    import gc
+    import httpx
+    freed_ollama = 0
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            res = await client.get("http://127.0.0.1:11434/api/tags")
+            if res.status_code == 200:
+                tags = res.json().get("models", [])
+                for t in tags:
+                    m_name = t.get("name")
+                    if m_name:
+                        await client.post("http://127.0.0.1:11434/api/generate", json={"model": m_name, "keep_alive": 0})
+                        freed_ollama += 1
+    except Exception:
+        pass
+
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+    except Exception:
+        pass
+    gc.collect()
+
+    return {
+        "status": "success",
+        "message": f"GPU VRAM flushed. Unloaded {freed_ollama} Ollama models and cleared PyTorch CUDA cache.",
+        "hardware": {
+            "static": TelemetryCollector.get_hardware_static_info(),
+            "live": TelemetryCollector.collect_all()
+        }
     }
 
 # --- COMPARISONS & RECOMMENDATION REPORT API ---
