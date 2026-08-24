@@ -467,11 +467,39 @@ export default function MultiModelMatrixPage() {
                             onChange={(e) => updateTarget(i, 'model_name', e.target.value)}
                             className="w-full bg-[#16161a] border border-zinc-700 hover:border-zinc-500 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-zinc-400 font-mono"
                           >
-                            {availModels.map((m: string) => (
-                              <option key={m} value={m} className="bg-zinc-900 text-white">
-                                {m}
-                              </option>
-                            ))}
+                            {provDiscovered.length > 0 && (
+                              <optgroup label="Discovered on this Engine">
+                                {provDiscovered.map((m: string) => (
+                                  <option key={`disc-${m}`} value={m} className="bg-zinc-900 text-emerald-300 font-medium">
+                                    ★ {m} (Discovered)
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )}
+
+                            <optgroup label="Hugging Face / Open Models">
+                              {uniqueModelNames.filter(m => (m.includes('/') || m.includes('instruct') || m.includes('Qwen') || m.includes('Llama') || m.includes('Mistral')) && !m.endsWith('.gguf') && !m.includes(':')).map((m: string) => (
+                                <option key={`hf-${m}`} value={m} className="bg-zinc-900 text-blue-300">
+                                  🤗 {m}
+                                </option>
+                              ))}
+                            </optgroup>
+
+                            <optgroup label="Ollama / llama.cpp GGUF Weights">
+                              {uniqueModelNames.filter(m => m.endsWith('.gguf') || m.includes(':') || m.includes('0.5b') || m.includes('7b')).map((m: string) => (
+                                <option key={`gguf-${m}`} value={m} className="bg-zinc-900 text-amber-300">
+                                  📦 {m}
+                                </option>
+                              ))}
+                            </optgroup>
+
+                            <optgroup label="Cloud API Models (Closed Endpoints)">
+                              {uniqueModelNames.filter(m => m.startsWith('gpt-') || m.startsWith('gemini-') || m.startsWith('deepseek-')).map((m: string) => (
+                                <option key={`cloud-${m}`} value={m} className="bg-zinc-900 text-zinc-400">
+                                  ☁️ {m} (Cloud API)
+                                </option>
+                              ))}
+                            </optgroup>
                           </select>
                         </div>
                       </div>
