@@ -673,21 +673,30 @@ export default function NewBenchmark() {
                 const peakSequentialGB = selectedMemories.length > 0 ? Math.max(...selectedMemories) : 0;
                 const activeRequiredGB = sequentialExecution ? peakSequentialGB : totalSimultaneousGB;
                 const isMemoryOverflow = !sequentialExecution && totalSimultaneousGB > detectedGpuVRAMGB && selectedProviders.length > 1;
+                const overflowDiffGB = +(totalSimultaneousGB - detectedGpuVRAMGB).toFixed(1);
 
                 return (
-                  <div className="md:col-span-2 bg-[#0e0e12] border border-zinc-800 rounded-xl p-3 space-y-2.5 shadow-sm mt-2">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-800/80 pb-2">
-                      <div className="flex items-center gap-2">
-                        <div className="p-1.5 bg-blue-500/10 border border-blue-500/20 rounded-lg text-blue-400">
+                  <div className={`md:col-span-2 border rounded-xl p-3.5 space-y-3 shadow-md transition-all mt-2 ${
+                    isMemoryOverflow 
+                      ? 'border-red-500/80 bg-red-950/20 shadow-[0_0_25px_rgba(239,68,68,0.15)]' 
+                      : 'bg-[#0e0e12] border-zinc-800'
+                  }`}>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-800/80 pb-2.5">
+                      <div className="flex items-center gap-2.5">
+                        <div className={`p-2 rounded-lg border ${
+                          isMemoryOverflow 
+                            ? 'bg-red-500/20 border-red-500/40 text-red-400 animate-pulse' 
+                            : 'bg-blue-500/10 border-blue-500/20 text-blue-400'
+                        }`}>
                           <Cpu className="h-4 w-4" />
                         </div>
                         <div>
                           <div className="text-xs font-bold text-white flex items-center gap-2">
-                            <span>Hardware Detected:</span>
+                            <span>Detected GPU:</span>
                             <span className="font-mono text-blue-300 font-semibold">{detectedGpuName}</span>
                           </div>
-                          <p className="text-[10px] text-zinc-400 font-mono">
-                            Total VRAM: <span className="text-white font-bold">{detectedGpuVRAMGB} GB</span> | Free Available: <span className="text-emerald-400 font-bold">{detectedFreeVRAMGB} GB</span>
+                          <p className="text-[11px] text-zinc-400 font-mono mt-0.5">
+                            GPU Space: <span className="text-white font-bold">{detectedGpuVRAMGB} GB VRAM</span> | Currently Free: <span className="text-emerald-400 font-bold">{detectedFreeVRAMGB} GB</span>
                           </p>
                         </div>
                       </div>
@@ -697,7 +706,7 @@ export default function NewBenchmark() {
                         <button
                           type="button"
                           onClick={() => setSequentialExecution(true)}
-                          className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                          className={`px-3 py-1.5 rounded-md text-[11px] font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
                             sequentialExecution 
                               ? 'bg-emerald-600 text-white shadow-sm font-bold' 
                               : 'text-zinc-400 hover:text-white'
@@ -709,9 +718,9 @@ export default function NewBenchmark() {
                         <button
                           type="button"
                           onClick={() => setSequentialExecution(false)}
-                          className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                          className={`px-3 py-1.5 rounded-md text-[11px] font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
                             !sequentialExecution 
-                              ? 'bg-amber-600 text-white shadow-sm font-bold' 
+                              ? isMemoryOverflow ? 'bg-red-600 text-white font-bold shadow-[0_0_15px_rgba(239,68,68,0.5)]' : 'bg-amber-600 text-white shadow-sm font-bold' 
                               : 'text-zinc-400 hover:text-white'
                           }`}
                         >
@@ -722,52 +731,82 @@ export default function NewBenchmark() {
                     </div>
 
                     {/* Memory Footprint Progress Bar */}
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-[10px] font-mono">
-                        <span className="text-zinc-400">
-                          {sequentialExecution ? "Peak Single-Model VRAM" : "Total Parallel VRAM Footprint"}: 
-                          <span className={`ml-1 font-bold ${isMemoryOverflow ? 'text-red-400' : 'text-white'}`}>
+                    <div className="space-y-1.5">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[11px] font-mono">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-zinc-300 font-medium">
+                            {sequentialExecution ? "🛡️ Peak Single-Model VRAM" : "⚡ Total Combined Model Footprint"}:
+                          </span>
+                          <span className={`font-bold px-1.5 py-0.5 rounded text-xs ${
+                            isMemoryOverflow 
+                              ? 'bg-red-500/20 text-red-300 border border-red-500/40' 
+                              : 'bg-zinc-800 text-white'
+                          }`}>
                             ~{activeRequiredGB} GB
                           </span>
-                        </span>
-                        <span className="text-zinc-400">
-                          GPU Ceiling: <span className="text-zinc-200">{detectedGpuVRAMGB} GB</span>
-                        </span>
+                          {!sequentialExecution && isMemoryOverflow && (
+                            <span className="text-red-400 font-bold text-[10px] animate-pulse">
+                              (+{overflowDiffGB} GB OVER GPU CAPACITY)
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-zinc-400 text-[10px]">
+                          GPU Ceiling: <span className="text-zinc-200 font-bold">{detectedGpuVRAMGB} GB</span> ({Math.min(999, Math.round((activeRequiredGB / detectedGpuVRAMGB) * 100))}%)
+                        </div>
                       </div>
-                      <div className="w-full bg-zinc-900 rounded-full h-2 overflow-hidden border border-zinc-800">
+
+                      {/* Progress Bar with Vivid Red styling on overflow */}
+                      <div className={`w-full rounded-full h-3 overflow-hidden border p-0.5 ${
+                        isMemoryOverflow 
+                          ? 'bg-red-950/60 border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.3)]' 
+                          : 'bg-zinc-900 border-zinc-800'
+                      }`}>
                         <div 
-                          className={`h-full transition-all duration-300 ${
+                          className={`h-full rounded-full transition-all duration-300 ${
                             isMemoryOverflow 
-                              ? 'bg-red-500' 
+                              ? 'bg-gradient-to-r from-red-600 to-rose-500 shadow-[0_0_15px_rgba(239,68,68,0.9)] animate-pulse' 
                               : activeRequiredGB / detectedGpuVRAMGB > 0.8 
-                                ? 'bg-amber-500' 
-                                : 'bg-emerald-500'
+                                ? 'bg-gradient-to-r from-amber-500 to-orange-500' 
+                                : 'bg-gradient-to-r from-emerald-500 to-teal-400'
                           }`}
                           style={{ width: `${Math.min(100, Math.round((activeRequiredGB / detectedGpuVRAMGB) * 100))}%` }}
                         />
                       </div>
+
+                      {/* Individual Target Breakdown Tags */}
+                      {selectedProvObjects.length > 0 && (
+                        <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                          <span className="text-[10px] font-mono text-zinc-500">Engines Breakdown:</span>
+                          {selectedProvObjects.map((p, idx) => (
+                            <span key={p.id} className="text-[10px] font-mono bg-black/50 border border-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded">
+                              {p.name.split(' ')[1] || p.type}: <strong className="text-white">~{selectedMemories[idx]} GB</strong>
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     {/* VRAM Overflow Warning Card */}
                     {isMemoryOverflow && (
-                      <div className="bg-red-950/40 border border-red-500/50 rounded-lg p-2.5 flex items-start justify-between gap-3 text-xs text-red-200">
-                        <div className="flex items-start gap-2">
-                          <AlertTriangle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
-                          <div className="space-y-0.5">
-                            <span className="font-bold text-red-300 uppercase tracking-wider text-[10px]">
-                              ⚠️ GPU Memory Collapse / OOM Risk
+                      <div className="bg-red-950/60 border-2 border-red-500/80 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-red-200 shadow-[0_0_20px_rgba(239,68,68,0.25)] animate-in fade-in">
+                        <div className="flex items-start gap-2.5">
+                          <AlertTriangle className="h-5 w-5 text-red-400 shrink-0 mt-0.5 animate-bounce" />
+                          <div className="space-y-1">
+                            <span className="font-bold text-red-300 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                              🚨 CRITICAL: GPU VRAM LIMIT EXCEEDED (~{totalSimultaneousGB} GB &gt; {detectedGpuVRAMGB} GB)
                             </span>
-                            <p className="text-[11px] text-red-200 leading-tight">
-                              Running {selectedProviders.length} engines simultaneously with <strong>{modelName || 'selected models'}</strong> requires an estimated <strong>~{totalSimultaneousGB} GB VRAM</strong>, which exceeds your GPU capacity (<strong>{detectedGpuVRAMGB} GB</strong>). 
-                              Servers may crash, run out of memory (CUDA OOM), or suffer severe CPU paging slowdowns.
+                            <p className="text-[11px] text-red-200 leading-relaxed">
+                              Running <strong>{selectedProviders.length} engines simultaneously</strong> with <strong>{modelName || 'selected model'}</strong> requires an estimated <strong>~{totalSimultaneousGB} GB VRAM</strong>, which exceeds your GPU space (<strong>{detectedGpuVRAMGB} GB</strong>) by <strong>+{overflowDiffGB} GB</strong>. 
+                              Engines may crash with CUDA Out-of-Memory, freeze the host, or suffer severe CPU paging. Switch to Sequential Execution to evaluate safely.
                             </p>
                           </div>
                         </div>
                         <button
                           type="button"
                           onClick={() => setSequentialExecution(true)}
-                          className="shrink-0 bg-red-600 hover:bg-red-500 text-white font-bold text-[10px] px-2.5 py-1.5 rounded uppercase tracking-wider transition-colors cursor-pointer"
+                          className="shrink-0 bg-red-600 hover:bg-red-500 text-white font-bold text-xs px-3.5 py-2 rounded-lg uppercase tracking-wider transition-all shadow-md hover:shadow-red-600/50 cursor-pointer flex items-center gap-1.5"
                         >
+                          <ShieldCheck className="h-4 w-4" />
                           Switch to Sequential Mode
                         </button>
                       </div>

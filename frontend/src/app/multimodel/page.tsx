@@ -71,29 +71,46 @@ export default function MultiModelMatrixPage() {
     });
   }, []);
 
-  // Memory Estimator based on model parameter size and serving runtime
+  // Memory Estimator based on model parameter size, quantization, and serving runtime
   const estimateMemoryGB = (modelName: string, providerId: number): number => {
     const prov = providers.find(p => p.id === providerId);
     const pType = (prov?.type || "").toLowerCase();
     const name = (modelName || "").toLowerCase();
     
+    // Check model registry metadata
+    const modelRecord = models.find(m => m.name.toLowerCase() === name || name.includes(m.name.toLowerCase()));
+    
     let baseParams = 0.5;
-    if (name.includes("70b")) baseParams = 70.0;
-    else if (name.includes("32b") || name.includes("34b")) baseParams = 32.0;
-    else if (name.includes("14b")) baseParams = 14.0;
-    else if (name.includes("8b")) baseParams = 8.0;
-    else if (name.includes("7b")) baseParams = 7.0;
-    else if (name.includes("3b")) baseParams = 3.0;
-    else if (name.includes("1.5b") || name.includes("1b")) baseParams = 1.5;
-    else if (name.includes("0.5b")) baseParams = 0.5;
+    if (modelRecord?.parameters) {
+      const pm = modelRecord.parameters.match(/(\d+(?:\.\d+)?)/);
+      if (pm) baseParams = parseFloat(pm[0]);
+    } else {
+      if (name.includes("671b")) baseParams = 671.0;
+      else if (name.includes("70b")) baseParams = 70.0;
+      else if (name.includes("32b") || name.includes("34b")) baseParams = 32.0;
+      else if (name.includes("27b")) baseParams = 27.0;
+      else if (name.includes("15b")) baseParams = 15.0;
+      else if (name.includes("14b") || name.includes("13b")) baseParams = 14.0;
+      else if (name.includes("8b")) baseParams = 8.0;
+      else if (name.includes("7b")) baseParams = 7.0;
+      else if (name.includes("3b")) baseParams = 3.0;
+      else if (name.includes("1.5b") || name.includes("1b")) baseParams = 1.5;
+      else if (name.includes("0.5b")) baseParams = 0.5;
+    }
+
+    const isInt4 = name.includes("q4") || name.includes("int4") || name.includes("awq") || (modelRecord?.quantization && modelRecord.quantization.toLowerCase().includes("int4"));
+    const isInt8 = name.includes("q8") || name.includes("int8") || (modelRecord?.quantization && modelRecord.quantization.toLowerCase().includes("int8"));
 
     if (pType.includes("transformers")) {
-      return +(baseParams * 2.2 + 0.8).toFixed(1);
+      const mult = isInt4 ? 0.9 : isInt8 ? 1.4 : 2.2;
+      return +(baseParams * mult + 1.2).toFixed(1);
     } else if (pType.includes("vllm")) {
-      return +(baseParams * 1.3 + 4.5).toFixed(1);
+      const mult = isInt4 ? 0.75 : 1.5;
+      return +(baseParams * mult + 4.0).toFixed(1);
     } else {
       // GGUF Q4 (Ollama, llama.cpp)
-      return +(baseParams * 0.75 + 0.5).toFixed(1);
+      const mult = isInt8 ? 1.1 : isInt4 ? 0.65 : 0.75;
+      return +(baseParams * mult + 0.6).toFixed(1);
     }
   };
 
@@ -109,6 +126,7 @@ export default function MultiModelMatrixPage() {
   const peakSequentialGB = targetMemories.length > 0 ? Math.max(...targetMemories) : 0;
   const activeRequiredGB = sequentialExecution ? peakSequentialGB : totalSimultaneousGB;
   const isMemoryOverflow = !sequentialExecution && totalSimultaneousGB > detectedGpuVRAMGB;
+  const overflowDiffGB = +(totalSimultaneousGB - detectedGpuVRAMGB).toFixed(1);
 
   const handleRun = async () => {
     if (targets.length === 0 || !selectedSuites.length) {
@@ -165,14 +183,17 @@ export default function MultiModelMatrixPage() {
   const uniqueModelNames = Array.from(new Set(models.map(m => m.name)));
 
   const addTarget = () => {
-    const prov = providers[0];
-    let firstModel = uniqueModelNames[0] || '';
+    // Pick the next provider in list for easy multi-interface pairing
+    const nextProvIndex = targets.length % (providers.length || 1);
+    const prov = providers[nextProvIndex] || providers[0];
+    
+    let availModels: string[] = [];
     if (prov && prov.last_models) {
-        try { 
-            const arr = JSON.parse(prov.last_models); 
-            if (arr.length > 0) firstModel = arr[0];
-        } catch(e) {}
+        try { availModels = JSON.parse(prov.last_models); } catch(e) {}
     }
+    const combined = Array.from(new Set([...availModels, ...uniqueModelNames])).filter(Boolean);
+    const firstModel = combined[0] || '';
+
     setTargets([...targets, { 
       provider_id: prov?.id || 0, 
       model_name: firstModel 
@@ -187,15 +208,16 @@ export default function MultiModelMatrixPage() {
     const newTargets = [...targets];
     newTargets[index] = { ...newTargets[index], [field]: value };
     
-    // Auto-select first model when provider changes
+    // Auto-select first model when provider changes if current model not applicable
     if (field === 'provider_id') {
        const p = providers.find(prov => prov.id === value);
        let availModels: string[] = [];
        if (p && p.last_models) {
            try { availModels = JSON.parse(p.last_models); } catch(e) {}
        }
-       if (availModels && availModels.length > 0) {
-           newTargets[index].model_name = availModels[0];
+       const combined = Array.from(new Set([...availModels, ...uniqueModelNames])).filter(Boolean);
+       if (combined && combined.length > 0 && !combined.includes(newTargets[index].model_name)) {
+           newTargets[index].model_name = combined[0];
        }
     }
     
@@ -221,19 +243,27 @@ export default function MultiModelMatrixPage() {
       </div>
 
       {/* GPU Detection & VRAM Status Bar */}
-      <div className="bg-[#0e0e12] border border-zinc-800 rounded-xl p-3 space-y-2.5 shadow-sm">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-800/80 pb-2">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 bg-blue-500/10 border border-blue-500/20 rounded-lg text-blue-400">
+      <div className={`bg-[#0e0e12] border rounded-xl p-3.5 space-y-3 shadow-md transition-all ${
+        isMemoryOverflow 
+          ? 'border-red-500/80 bg-red-950/20 shadow-[0_0_25px_rgba(239,68,68,0.15)]' 
+          : 'border-zinc-800'
+      }`}>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-800/80 pb-2.5">
+          <div className="flex items-center gap-2.5">
+            <div className={`p-2 rounded-lg border ${
+              isMemoryOverflow 
+                ? 'bg-red-500/20 border-red-500/40 text-red-400 animate-pulse' 
+                : 'bg-blue-500/10 border-blue-500/20 text-blue-400'
+            }`}>
               <Cpu className="h-4 w-4" />
             </div>
             <div>
               <div className="text-xs font-bold text-white flex items-center gap-2">
-                <span>Hardware Detected:</span>
+                <span>Detected GPU:</span>
                 <span className="font-mono text-blue-300 font-semibold">{detectedGpuName}</span>
               </div>
-              <p className="text-[10px] text-zinc-400 font-mono">
-                Total VRAM: <span className="text-white font-bold">{detectedGpuVRAMGB} GB</span> | Free Available: <span className="text-emerald-400 font-bold">{detectedFreeVRAMGB} GB</span>
+              <p className="text-[11px] text-zinc-400 font-mono mt-0.5">
+                GPU Space: <span className="text-white font-bold">{detectedGpuVRAMGB} GB VRAM</span> | Currently Free: <span className="text-emerald-400 font-bold">{detectedFreeVRAMGB} GB</span>
               </p>
             </div>
           </div>
@@ -242,7 +272,7 @@ export default function MultiModelMatrixPage() {
           <div className="flex items-center gap-1.5 bg-zinc-900/90 p-1 rounded-lg border border-zinc-800">
             <button
               onClick={() => setSequentialExecution(true)}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+              className={`px-3 py-1.5 rounded-md text-[11px] font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
                 sequentialExecution 
                   ? 'bg-emerald-600 text-white shadow-sm font-bold' 
                   : 'text-zinc-400 hover:text-white'
@@ -253,9 +283,9 @@ export default function MultiModelMatrixPage() {
             </button>
             <button
               onClick={() => setSequentialExecution(false)}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+              className={`px-3 py-1.5 rounded-md text-[11px] font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
                 !sequentialExecution 
-                  ? 'bg-amber-600 text-white shadow-sm font-bold' 
+                  ? isMemoryOverflow ? 'bg-red-600 text-white font-bold shadow-[0_0_15px_rgba(239,68,68,0.5)]' : 'bg-amber-600 text-white shadow-sm font-bold' 
                   : 'text-zinc-400 hover:text-white'
               }`}
             >
@@ -265,52 +295,86 @@ export default function MultiModelMatrixPage() {
           </div>
         </div>
 
-        {/* Memory Footprint Bar */}
-        <div className="space-y-1">
-          <div className="flex justify-between text-[10px] font-mono">
-            <span className="text-zinc-400">
-              {sequentialExecution ? "Peak Single-Model VRAM" : "Total Parallel VRAM Footprint"}: 
-              <span className={`ml-1 font-bold ${isMemoryOverflow ? 'text-red-400' : 'text-white'}`}>
+        {/* Memory Footprint Bar & Breakdown */}
+        <div className="space-y-1.5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[11px] font-mono">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-zinc-300 font-medium">
+                {sequentialExecution ? "🛡️ Peak Single-Model VRAM" : "⚡ Total Combined Model Footprint"}:
+              </span>
+              <span className={`font-bold px-1.5 py-0.5 rounded text-xs ${
+                isMemoryOverflow 
+                  ? 'bg-red-500/20 text-red-300 border border-red-500/40' 
+                  : 'bg-zinc-800 text-white'
+              }`}>
                 ~{activeRequiredGB} GB
               </span>
-            </span>
-            <span className="text-zinc-400">
-              GPU Ceiling: <span className="text-zinc-200">{detectedGpuVRAMGB} GB</span>
-            </span>
+              {!sequentialExecution && isMemoryOverflow && (
+                <span className="text-red-400 font-bold text-[10px] animate-pulse">
+                  (+{overflowDiffGB} GB OVER GPU CAPACITY)
+                </span>
+              )}
+            </div>
+            <div className="text-zinc-400 text-[10px]">
+              GPU Ceiling: <span className="text-zinc-200 font-bold">{detectedGpuVRAMGB} GB</span> ({Math.min(999, Math.round((activeRequiredGB / detectedGpuVRAMGB) * 100))}%)
+            </div>
           </div>
-          <div className="w-full bg-zinc-900 rounded-full h-2 overflow-hidden border border-zinc-800">
+
+          {/* Progress Bar with Vivid Red styling on overflow */}
+          <div className={`w-full rounded-full h-3 overflow-hidden border p-0.5 ${
+            isMemoryOverflow 
+              ? 'bg-red-950/60 border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.3)]' 
+              : 'bg-zinc-900 border-zinc-800'
+          }`}>
             <div 
-              className={`h-full transition-all duration-300 ${
+              className={`h-full rounded-full transition-all duration-300 ${
                 isMemoryOverflow 
-                  ? 'bg-red-500' 
+                  ? 'bg-gradient-to-r from-red-600 to-rose-500 shadow-[0_0_15px_rgba(239,68,68,0.9)] animate-pulse' 
                   : activeRequiredGB / detectedGpuVRAMGB > 0.8 
-                    ? 'bg-amber-500' 
-                    : 'bg-emerald-500'
+                    ? 'bg-gradient-to-r from-amber-500 to-orange-500' 
+                    : 'bg-gradient-to-r from-emerald-500 to-teal-400'
               }`}
               style={{ width: `${Math.min(100, Math.round((activeRequiredGB / detectedGpuVRAMGB) * 100))}%` }}
             />
           </div>
+
+          {/* Individual Targets Memory Breakdown Tags */}
+          {targets.length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+              <span className="text-[10px] font-mono text-zinc-500">Selected Models Breakdown:</span>
+              {targets.map((t, idx) => {
+                const mem = targetMemories[idx] || 0;
+                const p = providers.find(prov => prov.id === t.provider_id);
+                return (
+                  <span key={idx} className="text-[10px] font-mono bg-black/50 border border-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded">
+                    #{idx+1} {p?.name?.split(' ')[1] || p?.type || 'Target'}: <strong className="text-white">~{mem} GB</strong>
+                  </span>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* VRAM Overflow / Memory Collapse Warning Banner */}
         {isMemoryOverflow && (
-          <div className="bg-red-950/40 border border-red-500/50 rounded-lg p-2.5 flex items-start justify-between gap-3 text-xs text-red-200">
-            <div className="flex items-start gap-2">
-              <AlertTriangle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
-              <div className="space-y-0.5">
-                <span className="font-bold text-red-300 uppercase tracking-wider text-[10px]">
-                  ⚠️ GPU Memory Collapse / OOM Risk
+          <div className="bg-red-950/60 border-2 border-red-500/80 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-red-200 shadow-[0_0_20px_rgba(239,68,68,0.25)] animate-in fade-in">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="h-5 w-5 text-red-400 shrink-0 mt-0.5 animate-bounce" />
+              <div className="space-y-1">
+                <span className="font-bold text-red-300 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                  🚨 CRITICAL: GPU VRAM LIMIT EXCEEDED (~{totalSimultaneousGB} GB &gt; {detectedGpuVRAMGB} GB)
                 </span>
-                <p className="text-[11px] text-red-200 leading-tight">
-                  Running {targets.length} targets simultaneously requires estimated <strong>~{totalSimultaneousGB} GB VRAM</strong>, which exceeds your GPU capacity (<strong>{detectedGpuVRAMGB} GB</strong>). 
-                  Models may collapse, trigger CUDA Out-of-Memory exceptions, or suffer severe CPU offload slowdowns.
+                <p className="text-[11px] text-red-200 leading-relaxed">
+                  Running <strong>{targets.length} models simultaneously</strong> requires an estimated <strong>~{totalSimultaneousGB} GB VRAM</strong>, which exceeds your GPU space (<strong>{detectedGpuVRAMGB} GB</strong>) by <strong>+{overflowDiffGB} GB</strong>. 
+                  Models may crash with CUDA Out-of-Memory (OOM), freeze the system, or suffer severe CPU offload paging. Switch to Sequential Execution to run them safely.
                 </p>
               </div>
             </div>
             <button
               onClick={() => setSequentialExecution(true)}
-              className="shrink-0 bg-red-600 hover:bg-red-500 text-white font-bold text-[10px] px-2.5 py-1.5 rounded uppercase tracking-wider transition-colors cursor-pointer"
+              className="shrink-0 bg-red-600 hover:bg-red-500 text-white font-bold text-xs px-3.5 py-2 rounded-lg uppercase tracking-wider transition-all shadow-md hover:shadow-red-600/50 cursor-pointer flex items-center gap-1.5"
             >
+              <ShieldCheck className="h-4 w-4" />
               Switch to Sequential Mode
             </button>
           </div>
@@ -347,13 +411,12 @@ export default function MultiModelMatrixPage() {
               ) : (
                 targets.map((t, i) => {
                   const currentProv = providers.find(p => p.id === t.provider_id);
-                  let availModels: string[] = [];
+                  let provDiscovered: string[] = [];
                   if (currentProv && currentProv.last_models) {
-                    try { availModels = JSON.parse(currentProv.last_models); } catch(e) {}
+                    try { provDiscovered = JSON.parse(currentProv.last_models); } catch(e) {}
                   }
-                  if (!availModels || availModels.length === 0) {
-                    availModels = uniqueModelNames;
-                  }
+                  // Merge discovered models + all catalog models
+                  const availModels = Array.from(new Set([...provDiscovered, ...uniqueModelNames])).filter(Boolean);
 
                   const estMem = estimateMemoryGB(t.model_name, t.provider_id);
 
@@ -365,7 +428,7 @@ export default function MultiModelMatrixPage() {
                             Target #{i+1}
                           </span>
                           <span className="text-[9px] bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-mono border border-zinc-700">
-                            Est. VRAM: ~{estMem} GB
+                            Est. Model Weight: ~{estMem} GB VRAM
                           </span>
                         </div>
                         {targets.length > 1 && (
@@ -398,7 +461,7 @@ export default function MultiModelMatrixPage() {
 
                         {/* Model Select */}
                         <div className="space-y-1">
-                          <label className="text-[10px] font-mono text-zinc-400 block">Model Weight</label>
+                          <label className="text-[10px] font-mono text-zinc-400 block">Model Weight &amp; Name</label>
                           <select 
                             value={t.model_name}
                             onChange={(e) => updateTarget(i, 'model_name', e.target.value)}
