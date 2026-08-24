@@ -4,8 +4,8 @@ import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Download, Printer, FileText, CheckCircle, AlertTriangle } from "lucide-react";
 
 // Types mapping what we get from backend
-type Provider = { id: number; name: string; type: string };
-type Config = { name: string; model_name: string; temperature: number; max_tokens: number; use_identical_settings: boolean; concurrency: number };
+type Provider = { id: number; name: string; type: string; setup_complexity?: string; process_telemetry?: any };
+type Config = { name: string; model_name?: string; model?: { name: string; quantization?: string }; temperature: number; max_tokens: number; use_identical_settings: boolean; concurrency: number };
 type Run = { id: number; name: string; status: string; config: Config; hardware_info?: any; duration_seconds: number; created_at: string };
 type RequestData = {
   provider: Provider;
@@ -14,6 +14,8 @@ type RequestData = {
   ttft_ms?: number;
   output_tokens: number;
   quality_results: any[];
+  prompt?: any;
+  model_name?: string;
 };
 
 export default function ReportPage() {
@@ -270,7 +272,7 @@ export default function ReportPage() {
           <FileText className="h-6 w-6 text-blue-600" /> Methodology & Configuration
         </h2>
         <div className="bg-gray-50 p-6 rounded-xl border border-gray-200 text-sm grid grid-cols-2 gap-4">
-          <div><span className="font-semibold text-gray-700">Model Tested:</span> {run.config.model?.name}</div>
+          <div><span className="font-semibold text-gray-700">Model Tested:</span> {run.config.model?.name || run.config.model_name || "Standard Model"}</div>
           <div><span className="font-semibold text-gray-700">Concurrency:</span> {run.config.concurrency} parallel streams</div>
           <div><span className="font-semibold text-gray-700">Temperature:</span> {run.config.temperature}</div>
           <div><span className="font-semibold text-gray-700">Evaluation Strategy:</span> {evalMode.toUpperCase()}</div>

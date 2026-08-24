@@ -775,6 +775,8 @@ export default function NewBenchmark() {
                   </div>
                 );
               })()}
+            </div>
+          </div>
         )}
 
         {/* STEP 4: PROMPT SUITES SELECTION */}

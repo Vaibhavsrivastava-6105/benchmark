@@ -118,6 +118,9 @@ class ResponseEvaluator:
             if json_start == -1 or json_end == -1:
                 return 0.0, False, {
                     "error": "Could not locate JSON curly braces.",
+                    "valid_json": False,
+                    "malformed_json": True,
+                    "schema_compliance": False,
                     "failure_category": FailureCategory.INVALID_JSON,
                     "reasoning": "Output missing JSON curly delimiters."
                 }
@@ -127,12 +130,17 @@ class ResponseEvaluator:
             except json.JSONDecodeError as jde:
                 return 0.0, False, {
                     "error": f"JSON syntax error: {jde.msg}",
+                    "valid_json": False,
+                    "malformed_json": True,
+                    "schema_compliance": False,
                     "failure_category": FailureCategory.INVALID_JSON,
                     "reasoning": f"Malformed JSON syntax: {jde.msg}"
                 }
             if not schema_definition:
                 return 1.0, True, {
                     "info": "Valid JSON structure.",
+                    "valid_json": True,
+                    "schema_compliance": True,
                     "failure_category": FailureCategory.NONE,
                     "reasoning": "Valid JSON object."
                 }
@@ -140,13 +148,17 @@ class ResponseEvaluator:
                 validate(instance=parsed_json, schema=schema_definition)
                 return 1.0, True, {
                     "info": "JSON strictly conforms to schema.",
+                    "valid_json": True,
+                    "schema_compliance": True,
                     "failure_category": FailureCategory.NONE,
                     "reasoning": "Schema validation passed."
                 }
             except ValidationError as ve:
                 path_str = " -> ".join(str(p) for p in ve.absolute_path) or "root"
-                return 0.3, False, {
+                return 0.5, False, {
                     "error": f"Schema non-compliance at '{path_str}': {ve.message}",
+                    "valid_json": True,
+                    "schema_compliance": False,
                     "failure_category": FailureCategory.INVALID_JSON,
                     "reasoning": f"Missing or invalid field at '{path_str}': {ve.message}"
                 }

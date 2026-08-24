@@ -27,6 +27,7 @@ interface Provider {
   last_status?: string;
   last_error?: string;
   max_concurrency?: number | null;
+  process_telemetry?: { online?: boolean; [key: string]: any };
 }
 
 export default function ProvidersPage() {
@@ -63,7 +64,9 @@ export default function ProvidersPage() {
       
       setProviders(parsedData);
     } catch (err) {
-      console.error(err); setProviders([{id:999, name: "ERROR: " + err.message, type: "error", base_url: "", enabled: false}]);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error(err); 
+      setProviders([{id:999, name: "ERROR: " + errMsg, type: "error", base_url: "", enabled: false}]);
     } finally {
       setLoading(false);
     }
@@ -182,7 +185,9 @@ export default function ProvidersPage() {
         alert("Failed to create provider.");
       }
     } catch (err) {
-      console.error(err); setProviders([{id:999, name: "ERROR: " + err.message, type: "error", base_url: "", enabled: false}]);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error(err); 
+      setProviders([{id:999, name: "ERROR: " + errMsg, type: "error", base_url: "", enabled: false}]);
       alert("Network error.");
     }
   };

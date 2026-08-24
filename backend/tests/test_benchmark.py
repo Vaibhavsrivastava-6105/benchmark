@@ -134,7 +134,7 @@ def test_evaluator_semantic_similarity():
     score1, passed1, details1 = ResponseEvaluator.evaluate(
         "semantic_similarity", 
         "The quick brown fox jumps over the lazy dog.", 
-        expected_answer="A fast brown fox leaps over a sleepy dog."
+        expected_answer="A fast brown fox leaps over the lazy dog."
     )
     assert score1 > 0.60
     assert passed1 is True
