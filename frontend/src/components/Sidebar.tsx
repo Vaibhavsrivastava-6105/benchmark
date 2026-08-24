@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Play, List, Database, Cpu, Settings, Activity, Terminal, ScrollText , Layers} from "lucide-react";
+import { LayoutDashboard, Play, List, Database, Cpu, Settings, Activity, Terminal, ScrollText, Layers } from "lucide-react";
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -20,14 +20,22 @@ export default function Sidebar() {
   ];
 
   return (
-    <aside className="w-64 bg-[#0c0c0e] border-r border-zinc-800 flex flex-col">
-      <div className="p-6">
-        <h1 className="text-xl text-white font-bold tracking-tight flex items-center gap-2">
-          <Activity className="h-5 w-5 text-white" />
+    <aside className="w-44 bg-[#0c0c0e] border-r border-zinc-800 flex flex-col shrink-0">
+      {/* Brand Header */}
+      <div className="px-3.5 py-3 border-b border-zinc-800/80 flex items-center justify-between">
+        <h1 className="text-sm text-white font-bold tracking-tight flex items-center gap-1.5">
+          <div className="p-1 bg-white text-black rounded-md">
+            <Activity className="h-3.5 w-3.5 stroke-[2.5]" />
+          </div>
           BenchLab
         </h1>
+        <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700">
+          v1.0
+        </span>
       </div>
-      <nav className="flex-1 px-4 space-y-2">
+
+      {/* Nav Links */}
+      <nav className="flex-1 px-2 py-2 space-y-0.5 overflow-y-auto">
         {links.map(link => {
           const Icon = link.icon;
           const isActive = pathname === link.href;
@@ -35,20 +43,23 @@ export default function Sidebar() {
             <Link 
               key={link.href}
               href={link.href} 
-              className={`flex items-center gap-3 px-3 py-2 text-sm rounded-lg transition-colors ${
+              className={`flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-md transition-all ${
                 isActive 
-                  ? "bg-zinc-800 text-white font-medium" 
-                  : "text-zinc-400 hover:text-white hover:bg-zinc-900"
+                  ? "bg-zinc-800 text-white font-semibold border border-zinc-700/60 shadow-sm" 
+                  : "text-zinc-400 hover:text-white hover:bg-zinc-900/80"
               }`}
             >
-              <Icon className="h-4 w-4" /> {link.label}
+              <Icon className={`h-3.5 w-3.5 shrink-0 ${isActive ? "text-white" : "text-zinc-400"}`} />
+              <span className="truncate">{link.label}</span>
             </Link>
           );
         })}
       </nav>
-      <div className="p-4 border-t border-zinc-800 text-xs text-zinc-500">
-        BenchLab v1.0
-        <br/><span className="mt-1 block">Copyright 2024</span>
+
+      {/* Footer */}
+      <div className="p-2.5 border-t border-zinc-800 text-[10px] text-zinc-500 font-mono flex items-center justify-between">
+        <span>Engine Online</span>
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
       </div>
     </aside>
   );
