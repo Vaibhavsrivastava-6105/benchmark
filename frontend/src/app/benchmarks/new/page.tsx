@@ -12,7 +12,11 @@ import {
   BookOpen, 
   TrendingUp, 
   ShieldAlert,
-  HelpCircle
+  HelpCircle,
+  Cpu,
+  AlertTriangle,
+  ShieldCheck,
+  Zap
 } from "lucide-react";
 
 const API_BASE = "";
@@ -80,6 +84,7 @@ export default function NewBenchmark() {
   const [requestRate, setRequestRate] = useState<number | null>(null);
   const [completedRuns, setCompletedRuns] = useState<any[]>([]);
   const [baselineRunId, setBaselineRunId] = useState<number | "">("");
+  const [hardwareInfo, setHardwareInfo] = useState<any>(null);
 
   // Judge LLM config
   const [useJudge, setUseJudge] = useState(false);
@@ -113,6 +118,11 @@ export default function NewBenchmark() {
         if (Array.isArray(runsData)) {
           setCompletedRuns(runsData.filter((r: any) => r.status === "COMPLETED"));
         }
+
+        // Fetch hardware info
+        const hwRes = await fetch(`${API_BASE}/api/hardware`);
+        const hwData = await hwRes.json();
+        setHardwareInfo(hwData);
       } catch (err) {
         console.error("Failed to load wizard sources:", err);
       } finally {
@@ -121,6 +131,31 @@ export default function NewBenchmark() {
     };
     loadWizardData();
   }, []);
+
+  // Memory Estimator based on model parameter size and serving runtime
+  const estimateMemoryGB = (mName: string, providerType: string): number => {
+    const pType = (providerType || "").toLowerCase();
+    const name = (mName || "").toLowerCase();
+    
+    let baseParams = 0.5;
+    if (name.includes("70b")) baseParams = 70.0;
+    else if (name.includes("32b") || name.includes("34b")) baseParams = 32.0;
+    else if (name.includes("14b")) baseParams = 14.0;
+    else if (name.includes("8b")) baseParams = 8.0;
+    else if (name.includes("7b")) baseParams = 7.0;
+    else if (name.includes("3b")) baseParams = 3.0;
+    else if (name.includes("1.5b") || name.includes("1b")) baseParams = 1.5;
+    else if (name.includes("0.5b")) baseParams = 0.5;
+
+    if (pType.includes("transformers")) {
+      return +(baseParams * 2.2 + 0.8).toFixed(1);
+    } else if (pType.includes("vllm")) {
+      return +(baseParams * 1.3 + 4.5).toFixed(1);
+    } else {
+      // GGUF Q4 (Ollama, llama.cpp)
+      return +(baseParams * 0.75 + 0.5).toFixed(1);
+    }
+  };
 
   useEffect(() => {
     if (!modelName) return;
@@ -624,40 +659,122 @@ export default function NewBenchmark() {
                 </p>
               </div>
 
-              <div className="flex items-center gap-3 pt-6">
-                <input 
-                  type="checkbox" 
-                  id="identical"
-                  checked={useIdenticalSettings}
-                  onChange={(e) => setUseIdenticalSettings(e.target.checked)}
-                  className="rounded border-white text-white focus:ring-cyan-500"
-                />
-                <label htmlFor="identical" className="text-xs font-semibold text-zinc-400 cursor-pointer">
-                  Use identical settings across all providers
-                </label>
-              </div>
-              <div 
-                className="flex items-center gap-1 mt-6 p-4 bg-zinc-900 border-2 border-zinc-500 rounded-xl shadow-[0_0_15px_rgba(236,72,153,0.2)] hover:shadow-[0_0_25px_rgba(236,72,153,0.4)] transition-all cursor-pointer"
-                onClick={() => setSequentialExecution(!sequentialExecution)}
-              >
-                <input 
-                  type="checkbox" 
-                  id="sequential"
-                  checked={sequentialExecution}
-                  onChange={(e) => {
-                    e.stopPropagation();
-                    setSequentialExecution(e.target.checked);
-                  }}
-                  className="w-7 h-7 rounded border-zinc-500 text-zinc-300 focus:ring-pink-500 focus:ring-offset-2 focus:ring-offset-black cursor-pointer"
-                  onClick={(e) => e.stopPropagation()}
-                />
-                <label htmlFor="sequential" className="text-lg font-bold text-zinc-300 cursor-pointer select-none flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
-                  Run sequentially 
-                  <span className="text-zinc-300 font-medium text-sm">(Saves VRAM, prevents GPU crashes)</span>
-                </label>
-              </div>
-            </div>
-          </div>
+              {/* GPU Hardware Detection & Memory Footprint Card */}
+              {(() => {
+                const detectedGpu = hardwareInfo?.live?.gpu_utilization?.[0] || hardwareInfo?.static?.gpus?.[0];
+                const detectedGpuName = detectedGpu?.name || (hardwareInfo?.static?.cpu_model ? `CPU Mode (${hardwareInfo.static.cpu_model})` : "Standard GPU / CPU");
+                const detectedGpuVRAMBytes = detectedGpu?.vram_total || 0;
+                const detectedGpuVRAMGB = detectedGpuVRAMBytes > 0 ? +(detectedGpuVRAMBytes / (1024 ** 3)).toFixed(1) : 6.0;
+                const detectedFreeVRAMGB = detectedGpu?.vram_used ? +((detectedGpuVRAMBytes - detectedGpu.vram_used) / (1024 ** 3)).toFixed(1) : detectedGpuVRAMGB;
+
+                const selectedProvObjects = providers.filter(p => selectedProviders.includes(p.id));
+                const selectedMemories = selectedProvObjects.map(p => estimateMemoryGB(modelName, p.type));
+                const totalSimultaneousGB = +selectedMemories.reduce((a, b) => a + b, 0).toFixed(1);
+                const peakSequentialGB = selectedMemories.length > 0 ? Math.max(...selectedMemories) : 0;
+                const activeRequiredGB = sequentialExecution ? peakSequentialGB : totalSimultaneousGB;
+                const isMemoryOverflow = !sequentialExecution && totalSimultaneousGB > detectedGpuVRAMGB && selectedProviders.length > 1;
+
+                return (
+                  <div className="md:col-span-2 bg-[#0e0e12] border border-zinc-800 rounded-xl p-3 space-y-2.5 shadow-sm mt-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-800/80 pb-2">
+                      <div className="flex items-center gap-2">
+                        <div className="p-1.5 bg-blue-500/10 border border-blue-500/20 rounded-lg text-blue-400">
+                          <Cpu className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-white flex items-center gap-2">
+                            <span>Hardware Detected:</span>
+                            <span className="font-mono text-blue-300 font-semibold">{detectedGpuName}</span>
+                          </div>
+                          <p className="text-[10px] text-zinc-400 font-mono">
+                            Total VRAM: <span className="text-white font-bold">{detectedGpuVRAMGB} GB</span> | Free Available: <span className="text-emerald-400 font-bold">{detectedFreeVRAMGB} GB</span>
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Execution Strategy Toggle Buttons */}
+                      <div className="flex items-center gap-1.5 bg-zinc-900/90 p-1 rounded-lg border border-zinc-800">
+                        <button
+                          type="button"
+                          onClick={() => setSequentialExecution(true)}
+                          className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                            sequentialExecution 
+                              ? 'bg-emerald-600 text-white shadow-sm font-bold' 
+                              : 'text-zinc-400 hover:text-white'
+                          }`}
+                        >
+                          <ShieldCheck className="h-3.5 w-3.5" />
+                          Sequential (Safe)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSequentialExecution(false)}
+                          className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                            !sequentialExecution 
+                              ? 'bg-amber-600 text-white shadow-sm font-bold' 
+                              : 'text-zinc-400 hover:text-white'
+                          }`}
+                        >
+                          <Zap className="h-3.5 w-3.5" />
+                          Simultaneous (Parallel)
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Memory Footprint Progress Bar */}
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[10px] font-mono">
+                        <span className="text-zinc-400">
+                          {sequentialExecution ? "Peak Single-Model VRAM" : "Total Parallel VRAM Footprint"}: 
+                          <span className={`ml-1 font-bold ${isMemoryOverflow ? 'text-red-400' : 'text-white'}`}>
+                            ~{activeRequiredGB} GB
+                          </span>
+                        </span>
+                        <span className="text-zinc-400">
+                          GPU Ceiling: <span className="text-zinc-200">{detectedGpuVRAMGB} GB</span>
+                        </span>
+                      </div>
+                      <div className="w-full bg-zinc-900 rounded-full h-2 overflow-hidden border border-zinc-800">
+                        <div 
+                          className={`h-full transition-all duration-300 ${
+                            isMemoryOverflow 
+                              ? 'bg-red-500' 
+                              : activeRequiredGB / detectedGpuVRAMGB > 0.8 
+                                ? 'bg-amber-500' 
+                                : 'bg-emerald-500'
+                          }`}
+                          style={{ width: `${Math.min(100, Math.round((activeRequiredGB / detectedGpuVRAMGB) * 100))}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* VRAM Overflow Warning Card */}
+                    {isMemoryOverflow && (
+                      <div className="bg-red-950/40 border border-red-500/50 rounded-lg p-2.5 flex items-start justify-between gap-3 text-xs text-red-200">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
+                          <div className="space-y-0.5">
+                            <span className="font-bold text-red-300 uppercase tracking-wider text-[10px]">
+                              ⚠️ GPU Memory Collapse / OOM Risk
+                            </span>
+                            <p className="text-[11px] text-red-200 leading-tight">
+                              Running {selectedProviders.length} engines simultaneously with <strong>{modelName || 'selected models'}</strong> requires an estimated <strong>~{totalSimultaneousGB} GB VRAM</strong>, which exceeds your GPU capacity (<strong>{detectedGpuVRAMGB} GB</strong>). 
+                              Servers may crash, run out of memory (CUDA OOM), or suffer severe CPU paging slowdowns.
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setSequentialExecution(true)}
+                          className="shrink-0 bg-red-600 hover:bg-red-500 text-white font-bold text-[10px] px-2.5 py-1.5 rounded uppercase tracking-wider transition-colors cursor-pointer"
+                        >
+                          Switch to Sequential Mode
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
         )}
 
         {/* STEP 4: PROMPT SUITES SELECTION */}
